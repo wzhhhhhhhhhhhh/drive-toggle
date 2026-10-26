@@ -21,11 +21,11 @@ def draw(size):
     d = ImageDraw.Draw(img)
 
     # 「盘盖 + 盘体」直接相接（不留缝），小尺寸下整体更实、看起来更大
-    lid_top, lid_bottom = 0.04 * s, 0.40 * s
-    body_top, body_bottom = 0.40 * s, 0.96 * s
-    left, right = 0.02 * s, 0.98 * s
+    lid_top, lid_bottom = 0.10 * s, 0.42 * s
+    body_top, body_bottom = 0.42 * s, 0.90 * s
+    left, right = 0.08 * s, 0.92 * s
 
-    lid_inset = 0.10 * s
+    lid_inset = 0.09 * s
     d.polygon(
         [
             (left + lid_inset, lid_bottom),
