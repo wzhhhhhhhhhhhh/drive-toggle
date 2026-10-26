@@ -98,7 +98,7 @@ try {
     if (-not $DryRun) {
         $icons = Join-Path $script:Root 'icons'
         $overall = Get-SystemState
-        [void](Update-ToggleShortcut -State $overall.State -LnkPath (Get-ShortcutCandidates $script:MasterName) -IconDir $icons)
+        [void](Update-ToggleShortcut -State $overall -LnkPath (Get-ShortcutCandidates $script:MasterName) -IconDir $icons)
         foreach ($t in $Targets) {
             $info = Get-DiskRuntimeInfo $t
             $st = if ($info.State -eq 'on') { 'on' } else { 'off' }

@@ -127,7 +127,7 @@ function New-DiskShortcut {
 
 $sysState   = Get-SystemState
 $masterIcon = Get-IconPath $icons (Get-MasterIconName $sysState.State)
-$masterDesc = if ($sysState.State -eq 'on') { '当前：已挂载 · 点击将断开' } else { '当前：已卸载 · 点击将接入' }
+$masterDesc = Get-MasterDescription -State $sysState
 New-DiskShortcut -Label $master -TaskName 'Disk-Toggle' -IconPath $masterIcon -Description $masterDesc
 
 for ($i = 1; $i -le $list.Count; $i++) {

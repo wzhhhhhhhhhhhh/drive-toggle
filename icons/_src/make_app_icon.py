@@ -12,7 +12,8 @@ OUT = os.path.join(ROOT, "app.ico")
 
 SIZE = 512
 GREEN = (16, 155, 94, 255)      # #109B5E —— 与「已挂载」状态色一致
-CANVAS_FIT = 0.92               # 字形占画布比例（留边，避免 16px 下贴边被切）
+CANVAS_FIT = 0.94               # 宽度占比
+STRETCH_Y = 1.20                # 硬盘字形偏扁，竖向拉伸一点，任务栏里才不显小
 
 
 def main():
@@ -27,8 +28,11 @@ def main():
 
     target = int(SIZE * CANVAS_FIT)
     w, h = glyph.size
-    scale = min(target / w, target / h)
-    nw, nh = max(1, int(w * scale)), max(1, int(h * scale))
+    nw = target
+    nh = int(h * nw / w * STRETCH_Y)
+    if nh > SIZE:                      # 保险：不超出画布
+        nw = int(nw * SIZE / nh); nh = SIZE
+    nw, nh = max(1, nw), max(1, nh)
     alpha = alpha.resize((nw, nh), Image.LANCZOS)
 
     canvas = Image.new("RGBA", (SIZE, SIZE), (0, 0, 0, 0))

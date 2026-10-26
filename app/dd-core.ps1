@@ -218,6 +218,10 @@ public class DDWin {
     [DllImport("user32.dll")] private static extern bool ShowWindow(IntPtr h, int n);
     [DllImport("user32.dll")] private static extern bool SetForegroundWindow(IntPtr h);
     [DllImport("user32.dll")] private static extern bool BringWindowToTop(IntPtr h);
+    [DllImport("user32.dll")] private static extern IntPtr GetForegroundWindow();
+    [DllImport("user32.dll")] private static extern uint GetWindowThreadProcessId(IntPtr h, out uint pid);
+    [DllImport("kernel32.dll")] private static extern uint GetCurrentThreadId();
+    [DllImport("user32.dll")] private static extern bool AttachThreadInput(uint idAttach, uint idAttachTo, bool fAttach);
 
     public static long[] Find(string cls, string titlePart) {
         var hits = new List<long>();
@@ -236,8 +240,20 @@ public class DDWin {
     public static void Activate(long hwnd) {
         IntPtr h = new IntPtr(hwnd);
         ShowWindow(h, 9);          // SW_RESTORE：最小化的也能还原
-        BringWindowToTop(h);
-        SetForegroundWindow(h);
+
+        // 脚本进程此刻不在前台，Windows 会忽略 SetForegroundWindow。
+        // 把本线程挂到当前前台窗口的输入队列上，再抢前台就有效了。
+        uint pid;
+        uint fg = GetWindowThreadProcessId(GetForegroundWindow(), out pid);
+        uint me = GetCurrentThreadId();
+        bool attached = false;
+        if (fg != 0 && fg != me) { attached = AttachThreadInput(me, fg, true); }
+        try {
+            BringWindowToTop(h);
+            SetForegroundWindow(h);
+        } finally {
+            if (attached) { AttachThreadInput(me, fg, false); }
+        }
     }
 }
 '@
@@ -255,6 +271,15 @@ public class DDWin {
         }
 
         Start-Process explorer.exe -ArgumentList 'shell:MyComputerFolder'
+        # 新开的窗口也不一定抢到前台，等一下再切一次
+        Start-Sleep -Milliseconds 900
+        foreach ($t in @('此电脑', 'This PC')) {
+            $found = [DDWin]::Find('CabinetWClass', $t)
+            if ($found -and $found.Count -gt 0) {
+                [DDWin]::Activate($found[0])
+                return '已打开「此电脑」'
+            }
+        }
         return '已打开「此电脑」'
     } catch {
         try { Start-Process explorer.exe -ArgumentList 'shell:MyComputerFolder' } catch { }
@@ -513,15 +538,39 @@ function Update-ShortcutIcon {
     }
 }
 
+function Get-MasterDescription {
+    # 总开关的悬停描述：说清当前状态，以及点下去会发生什么
+    param($State)
+    $on = [int]$State.Online
+    $off = [int]$State.Offline
+    $absent = [int]$State.Absent
+    $total = $on + $off + $absent
+    $suffix = if ($State.State -eq 'on') { '点击将全部断开' } else { '点击将全部接入' }
+
+    if ($on -eq $total -and $total -gt 0) { return "当前：全部在线 · $suffix" }
+    if ($on -eq 0 -and $off -gt 0 -and $absent -eq 0) { return "当前：全部脱机 · $suffix" }
+    if ($on -eq 0 -and $off -eq 0) { return "当前：未连接 · $suffix" }
+
+    $part = "$on 在线 / $off 脱机"
+    if ($absent -gt 0) { $part += " / $absent 未连接" }
+    return "当前：$part · $suffix"
+}
 function Update-ToggleShortcut {
     # 总开关：按当前状态切换图标和描述
+    # $State 可以是 'on'/'off'，也可以是 Get-SystemState 返回的对象（带计数）
     param(
-        [string]$State,
+        $State,
         [string[]]$LnkPath,
         [string]$IconDir
     )
-    $icon = Get-IconPath $IconDir (Get-MasterIconName $State)
-    $desc = if ($State -eq 'on') { '当前：已挂载 · 点击将断开' } else { '当前：已卸载 · 点击将接入' }
+    if ($State -is [string]) {
+        $s = $State
+        $desc = if ($s -eq 'on') { '当前：已挂载 · 点击将断开' } else { '当前：已卸载 · 点击将接入' }
+    } else {
+        $s = $State.State
+        $desc = Get-MasterDescription -State $State
+    }
+    $icon = Get-IconPath $IconDir (Get-MasterIconName $s)
     return Update-ShortcutIcon -LnkPath $LnkPath -IconPath $icon -Description $desc
 }
 

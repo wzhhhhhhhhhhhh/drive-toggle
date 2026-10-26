@@ -125,7 +125,7 @@ if ($masterLnk) {
     else { T-Fail 'S1' "总开关图标与状态不符" "期望 $expectMaster，实际 $icon（状态=$($overall.State)）" }
     # 描述文字
     $desc = ($ws.CreateShortcut($masterLnk)).Description
-    if ($desc -and $desc -match '已挂载|已卸载') { T-Ok 'S2' "总开关描述：$desc" }
+    if ($desc -and $desc -match '在线|脱机|未连接') { T-Ok 'S2' "总开关描述：$desc" }
     else { T-Fail 'S2' '总开关描述文字缺失或格式不对' "实际：$desc" }
 } else {
     T-Skip 'S1' '找不到总开关快捷方式' '没装或已删'
