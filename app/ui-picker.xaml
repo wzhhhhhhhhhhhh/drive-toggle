@@ -123,8 +123,8 @@
         </Grid.ColumnDefinitions>
         <TextBlock x:Name="CountText" Grid.Column="0" Text="尚未选择" FontSize="12"
                    Foreground="#848D9E" VerticalAlignment="Center"/>
-        <Button x:Name="CancelBtn" Grid.Column="1" Content="取消" Style="{StaticResource GhostButton}" Margin="0,0,10,0"/>
-        <Button x:Name="OkBtn" Grid.Column="2" Content="确定" Style="{StaticResource PrimaryButton}" IsEnabled="False"/>
+        <Button x:Name="CancelBtn" Grid.Column="1" Content="取消" Style="{StaticResource GhostButton}" Margin="0,0,10,0" IsCancel="True"/>
+        <Button x:Name="OkBtn" Grid.Column="2" Content="确定" Style="{StaticResource PrimaryButton}" IsEnabled="False" IsDefault="True"/>
       </Grid>
     </Grid>
   </Border>
