@@ -15,6 +15,7 @@ Add-Type -AssemblyName WindowsBase
 
 $script:UiProgressXaml = Join-Path $PSScriptRoot 'ui-progress.xaml'
 $script:UiPickerXaml   = Join-Path $PSScriptRoot 'ui-picker.xaml'
+$script:UiConfirmXaml  = Join-Path $PSScriptRoot 'ui-confirm.xaml'
 
 function Initialize-Wpf {
     if ($script:WpfReady) { return }
@@ -34,12 +35,54 @@ function Invoke-UiPump {
     [System.Windows.Threading.Dispatcher]::PushFrame($frame)
 }
 
+if (-not ('DshWin32' -as [type])) {
+    Add-Type -Namespace DshWin32 -Name Api -MemberDefinition @'
+[DllImport("user32.dll")] public static extern int GetWindowLong(IntPtr hWnd, int nIndex);
+[DllImport("user32.dll")] public static extern int SetWindowLong(IntPtr hWnd, int nIndex, int dwNewLong);
+[DllImport("user32.dll")] public static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int X, int Y, int cx, int cy, uint uFlags);
+'@
+}
+
+function Set-UiAppWindow {
+    # 无边框 + 透明窗口是分层窗口，默认可能不进任务栏 / Alt+Tab。
+    # 显式加上 WS_EX_APPWINDOW、去掉 WS_EX_TOOLWINDOW，再刷新一次框架。
+    param($Window)
+    try {
+        $h = (New-Object System.Windows.Interop.WindowInteropHelper $Window).Handle
+        if ($h -eq [IntPtr]::Zero) { return }
+        $ex = [DshWin32.Api]::GetWindowLong($h, -20)
+        $ex = ($ex -bor 0x00040000) -band (-bnot 0x00000080)
+        [void][DshWin32.Api]::SetWindowLong($h, -20, $ex)
+        [void][DshWin32.Api]::SetWindowPos($h, [IntPtr]::Zero, 0, 0, 0, 0, 0x0027)
+    } catch { }
+}
+
+function Get-UiIcon {
+    # 任务栏 / 标题栏用的应用图标
+    $p = Join-Path (Split-Path $PSScriptRoot -Parent) 'icons\app.ico'
+    if (-not (Test-Path $p)) { return $null }
+    try {
+        $img = New-Object System.Windows.Media.Imaging.BitmapImage
+        $img.BeginInit()
+        $img.UriSource = New-Object System.Uri($p)
+        $img.CacheOption = [System.Windows.Media.Imaging.BitmapCacheOption]::OnLoad
+        $img.CreateOptions = [System.Windows.Media.Imaging.BitmapCreateOptions]::IgnoreImageCache
+        $img.EndInit()
+        $img.Freeze()
+        return $img
+    } catch { return $null }
+}
 function Load-UiWindow {
     param([string]$Path)
     if (-not (Test-Path $Path)) { throw "找不到界面文件：$Path" }
     $xml = [xml](Get-Content -LiteralPath $Path -Raw -Encoding UTF8)
     $reader = New-Object System.Xml.XmlNodeReader $xml
-    return [Windows.Markup.XamlReader]::Load($reader)
+    $win = [Windows.Markup.XamlReader]::Load($reader)
+    $ico = Get-UiIcon
+    if ($ico) { $win.Icon = $ico }
+    # 窗口创建后重新登记为「应用窗口」，否则任务栏 / Alt+Tab 里看不到
+    $win.Add_SourceInitialized({ param($s, $e) Set-UiAppWindow -Window $s })
+    return $win
 }
 
 function Set-UiAccent {
@@ -313,6 +356,40 @@ function Show-UiConfirm {
     }
     $r = [System.Windows.MessageBox]::Show($Message, $Title, $btn, [System.Windows.MessageBoxImage]::Question)
     return [string]$r
+}
+# ---------------------------------------------------------------- 初始化确认窗
+# 语义化的三选一：沿用现有配置 / 重新选盘 / 取消
+# 返回 'reuse' / 'reselect' / 'cancel'
+function Show-SetupConfirm {
+    param(
+        [string]$Names,
+        [string]$Title = '磁盘开关 · 初始化'
+    )
+
+    Initialize-Wpf
+
+    $win = Load-UiWindow $script:UiConfirmXaml
+    $win.Title = $Title
+
+    $win.FindName('TitleText').Text = '已经配置过了'
+    $win.FindName('MessageText').Text = "当前管理：$Names`n`n要沿用这组配置，还是重新选择磁盘？"
+    $mainBtn = $win.FindName('MainBtn')
+    $altBtn = $win.FindName('AltBtn')
+    $cancelBtn = $win.FindName('CancelBtn')
+    $mainBtn.Content = '沿用现有配置'
+    $altBtn.Content = '重新选盘'
+    $cancelBtn.Content = '取消'
+
+    $global:__dsConfirmResult = 'cancel'
+    $mainBtn.Add_Click({ $global:__dsConfirmResult = 'reuse'; $win.Close() }.GetNewClosure())
+    $altBtn.Add_Click({ $global:__dsConfirmResult = 'reselect'; $win.Close() }.GetNewClosure())
+    $cancelBtn.Add_Click({ $global:__dsConfirmResult = 'cancel'; $win.Close() }.GetNewClosure())
+    $win.Add_MouseLeftButtonDown({ try { $win.DragMove() } catch { } })
+
+    $win.ShowDialog() | Out-Null
+    $r = $global:__dsConfirmResult
+    try { $win.Close() } catch { }
+    return $r
 }
 # ---------------------------------------------------------------- 提示框
 function Show-UiMessage {

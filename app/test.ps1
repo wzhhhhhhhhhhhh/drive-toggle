@@ -35,7 +35,7 @@ Write-Host ''
 # ---------- 1. 文件完整性 ----------
 Write-Host '1) 文件完整性' -ForegroundColor White
 $requiredApp = @('dd-core.ps1', 'ui-picker.xaml', 'setup.ps1', 'install.ps1',
-                 'mount-all.ps1', 'unmount-all.ps1', 'toggle-all.ps1', 'test.ps1', 'test-logic.ps1', 'ui-wpf.ps1', 'ui-progress.xaml', 'ui-picker.xaml')
+                 'mount-all.ps1', 'unmount-all.ps1', 'toggle-all.ps1', 'test.ps1', 'test-logic.ps1', 'ui-wpf.ps1', 'ui-progress.xaml', 'ui-picker.xaml', 'ui-confirm.xaml')
 foreach ($f in $requiredApp) {
     if (Test-Path (Join-Path $appDir $f)) { T-Ok 'F1' "app\$f" } else { T-Fail 'F1' "缺少 app\$f" '文件不存在' }
 }
@@ -356,6 +356,8 @@ try {
     $stubLines = @(
         '$global:__stubPicker = @(__PICKER__)',
         '$global:__stubConfirm = ''__CONFIRM__''',
+        '$global:__stubSetupConfirm = ''__SETUP__''',
+        'function Show-SetupConfirm { param($Names, $Title) return $global:__stubSetupConfirm }',
         'function Show-DiskPicker { param($Rows) return $global:__stubPicker }',
         'function Show-UiConfirm { param($Message, $Title, $Buttons) return $global:__stubConfirm }',
         'function Show-UiMessage { param($Message, $Title, $Kind) }',
@@ -367,9 +369,9 @@ try {
     )
     $stubPath = Join-Path $sbApp 'ui-wpf.ps1'
 
-    function Invoke-SetupSandbox([int[]]$picker, [string]$confirm) {
+    function Invoke-SetupSandbox([int[]]$picker, [string]$confirm, [string]$setupConfirm = 'reselect') {
         $code = $stubLines -join "`r`n"
-        $code = $code.Replace('__PICKER__', ($picker -join ',')).Replace('__CONFIRM__', $confirm)
+        $code = $code.Replace('__PICKER__', ($picker -join ',')).Replace('__CONFIRM__', $confirm).Replace('__SETUP__', $setupConfirm)
         [IO.File]::WriteAllText($stubPath, $code, (New-Object Text.UTF8Encoding($true)))
         & powershell -NoProfile -ExecutionPolicy Bypass -File $setupSb -NoInstall *> $null
         return $LASTEXITCODE
@@ -402,7 +404,7 @@ try {
 
     # 沿用现有配置：不重写
     $before = Get-Content $cfgSb -Raw
-    $null = Invoke-SetupSandbox @(1) 'Yes'
+    $null = Invoke-SetupSandbox @(1) 'Yes' 'reuse'
     if ((Get-Content $cfgSb -Raw) -eq $before) { T-Ok 'T7' '选「沿用」不改配置' }
     else { T-Fail 'T7' '选「沿用」却改了配置' '' }
 

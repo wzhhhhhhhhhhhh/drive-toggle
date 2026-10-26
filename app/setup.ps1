@@ -43,13 +43,15 @@ if ((Test-Path $cfgPath) -and -not $Reconfigure) {
     try { $old = Get-Content $cfgPath -Raw -Encoding UTF8 | ConvertFrom-Json } catch { }
     if ($old) {
         $names = (@($old.disks) | ForEach-Object { $_.name }) -join '、'
-        $ans = Show-UiConfirm -Message ("检测到已有配置：$names`n`n是沿用这组，还是重新选择磁盘？") -Title '磁盘开关 · 初始化' -Buttons 'YesNoCancel'
-        if ($ans -eq 'Cancel') { exit 0 }
-        if ($ans -eq 'Yes') {
-            if (-not $NoInstall) {
-                & (Join-Path $PSScriptRoot 'install.ps1') -SkipSetup
-                [void](Show-UiMessage -Message "已按现有配置重建完成任务和桌面快捷方式。`n`n管理磁盘：$names" -Title '磁盘开关')
-            }
+        $ans = Show-SetupConfirm -Names $names -Title '磁盘开关 · 初始化'
+        if ($ans -eq 'cancel') { exit 0 }
+        if ($ans -eq 'reuse') {
+            if ($NoInstall) { exit 0 }
+            # 沿用现有配置：重建任务和快捷方式，同样走进度窗（后台跑）
+            $outcome = Show-OperationDialog -Title '初始化' -Direction 'setup' -HoldOk 1.6 `
+                -ScriptPath (Join-Path $PSScriptRoot 'install.ps1') `
+                -ScriptArgs @{ SkipSetup = $true }
+            if ($outcome.Error) { exit 1 }
             exit 0
         }
     }
