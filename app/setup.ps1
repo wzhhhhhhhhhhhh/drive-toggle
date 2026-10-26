@@ -117,20 +117,12 @@ if ($NoInstall) {
     exit 0
 }
 
-# ---- 保存配置 + 安装，全程有进度 ----
-$outcome = Show-OperationDialog -Title '初始化' -Direction 'setup' -HoldOk 1.4 -Work {
-    param($progress)
+# ---- 先落配置（瞬间完成），安装步骤交给进度窗在后台跑 ----
+[IO.File]::WriteAllText($cfgPath, $json, (New-Object Text.UTF8Encoding($false)))
 
-    & $progress '正在保存磁盘配置…' 6
-    [IO.File]::WriteAllText($cfgPath, $json, (New-Object Text.UTF8Encoding($false)))
-    Start-Sleep -Milliseconds 180
-
-    & $progress '正在重建计划任务…' 18
-    & (Join-Path $PSScriptRoot 'install.ps1') -SkipSetup -Progress $progress
-
-    & $progress '完成' 100
-    return @([pscustomobject]@{ 磁盘 = '将管理'; 结果 = $names })
-}
+$outcome = Show-OperationDialog -Title '初始化' -Direction 'setup' -HoldOk 1.6 `
+    -ScriptPath (Join-Path $PSScriptRoot 'install.ps1') `
+    -ScriptArgs @{ SkipSetup = $true }
 
 if ($outcome.Error) { exit 1 }
 

@@ -114,6 +114,55 @@ function New-UiWorker {
 }
 
 # ---------------------------------------------------------------- 选盘窗口
+function New-ScriptWorker {
+    # 在后台 STA runspace 里跑任意脚本（脚本需支持 -Progress 参数），进度回传
+    param(
+        [string]$ScriptPath,
+        [hashtable]$ScriptArgs = @{},
+        [string]$WorkDir
+    )
+
+    $sync = [hashtable]::Synchronized(@{
+        Text = ''; Pct = $null; Done = $false; Error = $null; Results = @()
+    })
+
+    $rs = [runspacefactory]::CreateRunspace()
+    $rs.ApartmentState = 'STA'
+    $rs.ThreadOptions = 'ReuseThread'
+    $rs.Open()
+
+    $ps = [powershell]::Create()
+    $ps.Runspace = $rs
+    $rs.SessionStateProxy.SetVariable('__dshSync', $sync)
+    $rs.SessionStateProxy.SetVariable('__dshScript', $ScriptPath)
+    $rs.SessionStateProxy.SetVariable('__dshScriptArgs', $ScriptArgs)
+    $rs.SessionStateProxy.SetVariable('__dshWorkDir', $WorkDir)
+
+    $worker = {
+        try {
+            if ($global:__dshWorkDir) { Set-Location $global:__dshWorkDir }
+            $cb = {
+                param($t, $p)
+                if ($t) { $global:__dshSync.Text = $t }
+                if ($null -ne $p) { $global:__dshSync.Pct = [double]$p }
+            }
+            $sp = @{}
+            if ($global:__dshScriptArgs) {
+                foreach ($k in $global:__dshScriptArgs.Keys) { $sp[$k] = $global:__dshScriptArgs[$k] }
+            }
+            $sp['Progress'] = $cb
+            $global:__dshSync.Results = @(& $global:__dshScript @sp)
+        } catch {
+            $global:__dshSync.Error = $_.Exception.Message
+        } finally {
+            $global:__dshSync.Done = $true
+        }
+    }
+
+    $handle = $ps.AddScript($worker).BeginInvoke()
+    return [pscustomobject]@{ Sync = $sync; PS = $ps; Handle = $handle; Runspace = $rs }
+}
+
 # Rows: 每项需含 Index / Letters / Model / SizeGB / Bus / Media
 # 返回被勾选的 Index 数组（按行序）
 function Show-DiskPicker {
@@ -276,10 +325,35 @@ function Show-UiMessage {
     }
     [void][System.Windows.MessageBox]::Show($Message, $Title, [System.Windows.MessageBoxButton]::OK, $icon)
 }
+function Wait-UiWorker {
+    # 用嵌套消息循环等后台作业：消息全速处理（拖动跟手），定时器负责刷新界面。
+    # 关键：界面对象、函数、状态全部通过 $Ctx 以参数传入，回调里不读自由变量
+    #（PowerShell 脚本块是动态作用域，自由变量会被调用方的同名变量顶掉）。
+    param($Window, $Sync, [scriptblock]$OnTick, $Ctx)
+
+    $frame = New-Object System.Windows.Threading.DispatcherFrame
+    $poll = New-Object System.Windows.Threading.DispatcherTimer
+    $poll.Interval = [TimeSpan]::FromMilliseconds(16)
+    $poll.Add_Tick({
+        & $OnTick $Ctx $Sync
+        if ($Sync.Done -or -not $Window.IsVisible) {
+            $poll.Stop()
+            $frame.Continue = $false
+        }
+    }.GetNewClosure())
+    $poll.Start()
+    try {
+        [System.Windows.Threading.Dispatcher]::PushFrame($frame)
+    } finally {
+        $poll.Stop()
+    }
+}
+
 # ---------------------------------------------------------------- 操作进度窗
-# 两种用法：
-#   1) -CorePath -Targets -Direction  → 后台 runspace 执行（界面全程可拖动）
-#   2) -Work <scriptblock>            → 同步执行（初始化这类短流程）
+# 三种用法：
+#   1) -CorePath -Targets -Direction  → 后台跑磁盘操作
+#   2) -ScriptPath                    → 后台跑某个脚本（初始化用 install.ps1）
+#   3) -Work <scriptblock>            → 同步执行（极短流程）
 function Show-OperationDialog {
     param(
         [string]$Title,
@@ -290,6 +364,8 @@ function Show-OperationDialog {
         [switch]$Force,
         [switch]$DryRun,
         [string]$LogDir,
+        [string]$ScriptPath,
+        [hashtable]$ScriptArgs = @{},
         [string]$ActionLabel = '切换',
         [double]$HoldOk = 1.6,
         [double]$HoldFail = 3.5
@@ -307,14 +383,33 @@ function Show-OperationDialog {
     $win.Title = $Title
     Set-UiAccent -Window $win -Hex $accent
 
-    $lblTitle = $win.FindName('TitleText')
-    $lblStatus = $win.FindName('StatusText')
-    $lblPct = $win.FindName('PercentText')
-    $fill = $win.FindName('ProgressFill')
-    $track = $win.FindName('TrackGrid')
-    $lblFoot = $win.FindName('FootText')
+    # 所有界面对象 + 进度状态 + 渲染函数装进一个哈希表，回调只通过它取东西
+    $ctx = @{
+        lblTitle  = $win.FindName('TitleText')
+        lblStatus = $win.FindName('StatusText')
+        lblPct    = $win.FindName('PercentText')
+        fill      = $win.FindName('ProgressFill')
+        track     = $win.FindName('TrackGrid')
+        lblFoot   = $win.FindName('FootText')
+        st        = @{ barW = 0.0; shown = 0.0; target = 0.0; hasPct = $false }
+    }
 
-    $lblTitle.Text = switch ($Direction) {
+    $ctx.render = {
+        param($c)
+        if ($c.st.barW -le 0 -and $c.track) { $c.st.barW = [double]$c.track.ActualWidth }
+        if ($c.st.barW -le 0) { $c.st.barW = 360 }
+        if ($c.st.hasPct) {
+            $diff = $c.st.target - $c.st.shown
+            if ([math]::Abs($diff) -gt 0.4) { $c.st.shown += $diff * 0.30 } else { $c.st.shown = $c.st.target }
+            $c.fill.Width = [math]::Max(0, $c.st.barW * $c.st.shown / 100.0)
+            $c.lblPct.Text = ('{0}%' -f [int]$c.st.target)
+        } else {
+            $c.fill.Width = $c.st.barW * 0.28
+            $c.lblPct.Text = ''
+        }
+    }
+
+    $ctx.lblTitle.Text = switch ($Direction) {
         'unmount' { '正在卸载…' }
         'setup'   { '正在初始化…' }
         default   { '正在挂载…' }
@@ -323,55 +418,36 @@ function Show-OperationDialog {
     # 无边框窗口可拖动（无 Topmost，点别的窗口就能把它压下去）
     $win.Add_MouseLeftButtonDown({ try { $win.DragMove() } catch { } })
 
-    $barW = 0
-    $shown = 0.0
-    $target = 0.0
-    $hasPct = $false
-
-    $render = {
-        if ($barW -le 0 -and $track) { $barW = [double]$track.ActualWidth }
-        if ($barW -le 0) { $barW = 360 }
-        if ($hasPct) {
-            $diff = $target - $shown
-            if ([math]::Abs($diff) -gt 0.4) { $shown += $diff * 0.30 } else { $shown = $target }
-            $fill.Width = [math]::Max(0, $barW * $shown / 100.0)
-            $lblPct.Text = ('{0}%' -f [int]$target)
-        } else {
-            $fill.Width = $barW * 0.28
-            $lblPct.Text = ''
-        }
-    }
-
     $win.Show()
     Invoke-UiPump
-    & $render
+    & $ctx.render $ctx
 
     $err = $null
     $results = @()
-    $worker = $null
 
     try {
-        if ($CorePath -and $Targets) {
-            # ---- 后台执行 ----
-            $worker = New-UiWorker -CorePath $CorePath -Targets $Targets -Direction $Direction `
-                                   -Force ([bool]$Force) -DryRun ([bool]$DryRun) `
-                                   -LogDir $LogDir -ActionLabel $ActionLabel
+        if ($ScriptPath -or ($CorePath -and $Targets)) {
+            # ---- 后台作业（界面线程全程空闲） ----
+            if ($ScriptPath) {
+                $worker = New-ScriptWorker -ScriptPath $ScriptPath -ScriptArgs $ScriptArgs `
+                                           -WorkDir (Split-Path $ScriptPath -Parent)
+            } else {
+                $worker = New-UiWorker -CorePath $CorePath -Targets $Targets -Direction $Direction `
+                                       -Force ([bool]$Force) -DryRun ([bool]$DryRun) `
+                                       -LogDir $LogDir -ActionLabel $ActionLabel
+            }
             $sync = $worker.Sync
 
-            while (-not $sync.Done -and $win.IsVisible) {
-                if ($sync.Text -and $lblStatus.Text -ne $sync.Text) { $lblStatus.Text = $sync.Text }
-                if ($null -ne $sync.Pct) { $hasPct = $true; $target = [double]$sync.Pct }
-                & $render
-                Invoke-UiPump
-                Start-Sleep -Milliseconds 16
+            Wait-UiWorker -Window $win -Sync $sync -Ctx $ctx -OnTick {
+                param($c, $s)
+                if ($s.Text -and $c.lblStatus.Text -ne $s.Text) { $c.lblStatus.Text = $s.Text }
+                if ($null -ne $s.Pct) { $c.st.hasPct = $true; $c.st.target = [double]$s.Pct }
+                & $c.render $c
             }
 
-            # 用户可能中途关掉窗口——作业仍在跑，必须等它完成，
-            # 否则调用方会拿着"半截状态"去刷图标、写日志。
-            $waitUntil = (Get-Date).AddSeconds(180)
-            while (-not $sync.Done -and (Get-Date) -lt $waitUntil) {
-                Start-Sleep -Milliseconds 50
-            }
+            # 用户可能中途关窗口——作业还在跑，等它结束再返回
+            $waitUntil = (Get-Date).AddSeconds(300)
+            while (-not $sync.Done -and (Get-Date) -lt $waitUntil) { Start-Sleep -Milliseconds 50 }
 
             try { [void]$worker.PS.EndInvoke($worker.Handle) } catch { }
             try { $worker.PS.Dispose() } catch { }
@@ -379,43 +455,46 @@ function Show-OperationDialog {
 
             $err = $sync.Error
             $results = @($sync.Results)
-        } else {
-            # ---- 同步执行（短流程） ----
-            $progress = {
-                param([string]$text, $pct = $null)
-                if ($text) { $lblStatus.Text = $text }
-                if ($null -ne $pct) { $hasPct = $true; $target = [double]$pct }
-                & $render
+        }
+        else {
+            # ---- 同步执行（极短流程） ----
+            $cb = {
+                param($text, $pct = $null)
+                $c = $global:__dsOpCtx
+                if ($text) { $c.lblStatus.Text = $text }
+                if ($null -ne $pct) { $c.st.hasPct = $true; $c.st.target = [double]$pct }
+                & $c.render $c
                 Invoke-UiPump
-            }
-            $results = @(& $Work $progress)
+            }.GetNewClosure()
+            $global:__dsOpCtx = $ctx
+            $results = @(& $Work $cb)
         }
     } catch {
         $err = $_.Exception.Message
     }
 
     # ---- 收尾 ----
-    $hasPct = $true
-    $target = 100.0
-    $shown = 100.0
-    & $render
+    $ctx.st.hasPct = $true
+    $ctx.st.target = 100.0
+    $ctx.st.shown = 100.0
+    & $ctx.render $ctx
     Invoke-UiPump
 
     if ($err) {
-        $lblTitle.Text = '出错了'
-        $lblTitle.Foreground = New-Object System.Windows.Media.SolidColorBrush ([System.Windows.Media.ColorConverter]::ConvertFromString('#E24A4A'))
-        $lblStatus.Text = ''
-        $lblFoot.Text = $err
+        $ctx.lblTitle.Text = '出错了'
+        $ctx.lblTitle.Foreground = New-Object System.Windows.Media.SolidColorBrush ([System.Windows.Media.ColorConverter]::ConvertFromString('#E24A4A'))
+        $ctx.lblStatus.Text = ''
+        $ctx.lblFoot.Text = $err
         Set-UiAccent -Window $win -Hex '#E24A4A'
     } else {
-        $lblTitle.Text = switch ($Direction) {
+        $ctx.lblTitle.Text = switch ($Direction) {
             'unmount' { '已卸载' }
             'setup'   { '初始化完成' }
             default   { '已挂载' }
         }
-        $lblStatus.Text = ''
+        $ctx.lblStatus.Text = ''
         if (@($results).Count -gt 0 -and (@($results)[0].PSObject.Properties.Name -contains '磁盘')) {
-            $lblFoot.Text = (@($results | ForEach-Object { '{0}  {1}' -f $_.磁盘, $_.结果 }) -join '        ')
+            $ctx.lblFoot.Text = (@($results | ForEach-Object { '{0}  {1}' -f $_.磁盘, $_.结果 }) -join '        ')
         }
     }
     Invoke-UiPump

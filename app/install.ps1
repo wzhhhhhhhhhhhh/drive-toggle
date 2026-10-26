@@ -53,6 +53,7 @@ Write-Host "  管理磁盘：$(($list | ForEach-Object { $_.Label }) -join '、'
 Write-Host ''
 
 # ---- 1. 清理遗留 ----
+if ($Progress) { & $Progress '准备安装…' 4 }
 if ($Progress) { & $Progress '清理旧任务与旧快捷方式…' 12 }
 foreach ($n in 'D-Mount', 'D-Unmount', 'F-Mount', 'F-Unmount') {
     $task = Get-ScheduledTask -TaskName $n -ErrorAction SilentlyContinue
@@ -101,6 +102,7 @@ New-DiskTask -Name 'Disk-Mount'   -Script 'mount-all.ps1'   -Arguments '' -Descr
 New-DiskTask -Name 'Disk-Unmount' -Script 'unmount-all.ps1' -Arguments '' -Description '卸载全部磁盘'
 New-DiskTask -Name 'Disk-Toggle'  -Script 'toggle-all.ps1'  -Arguments '' -Description "$master（总开关）"
 for ($i = 1; $i -le $list.Count; $i++) {
+    if ($Progress) { & $Progress ("重建每盘任务 $i / $($list.Count)…") ([int](35 + 30 * $i / [math]::Max(1, $list.Count))) }
     New-DiskTask -Name "Disk-Toggle-$i" -Script 'toggle-all.ps1' -Arguments "-Only $i" `
                  -Description "$master - $($list[$i-1].Label)"
 }
@@ -129,6 +131,7 @@ $masterDesc = if ($sysState.State -eq 'on') { '当前：已挂载 · 点击将�
 New-DiskShortcut -Label $master -TaskName 'Disk-Toggle' -IconPath $masterIcon -Description $masterDesc
 
 for ($i = 1; $i -le $list.Count; $i++) {
+    if ($Progress) { & $Progress ("生成快捷方式 $i / $($list.Count)…") ([int](70 + 18 * $i / [math]::Max(1, $list.Count))) }
     $t = $list[$i - 1]
     $info = Get-DiskRuntimeInfo $t
     $st = if ($info.State -eq 'on') { 'on' } else { 'off' }
