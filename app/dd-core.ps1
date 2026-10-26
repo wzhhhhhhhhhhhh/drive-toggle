@@ -115,7 +115,8 @@ function Write-ActionLog {
 
 function Get-TargetDisk {
     param($t)
-    $found = @(Get-Disk | Where-Object { $_.SerialNumber -like ('*' + $t.Serial + '*') })
+    $key = ([string]$t.Serial).Trim()
+                $found = @(Get-Disk | Where-Object { ([string]$_.SerialNumber).Trim() -eq $key })
     if ($found.Count -eq 0) { return $null }
     if ($found.Count -gt 1) { throw "序列号匹配到 $($found.Count) 块盘，已中止" }
     $disk = $found[0]

@@ -81,8 +81,21 @@ static class Program
         return flat;   // 交给 RunPowerShell 报「找不到脚本」
     }
 
+    static void LauncherLog(string msg)
+    {
+        try
+        {
+            string dir = Path.Combine(Path.GetTempPath(), "drive-toggle");
+            Directory.CreateDirectory(dir);
+            File.AppendAllText(Path.Combine(dir, "launcher.log"),
+                DateTime.Now.ToString("HH:mm:ss.fff") + "  " + msg + Environment.NewLine);
+        }
+        catch { }
+    }
+
     static void RunPowerShell(string workDir, string script, string extraArgs, bool wait)
     {
+        LauncherLog("RunPowerShell workDir=" + workDir + " script=" + script + " args=" + extraArgs);
         if (!File.Exists(script)) { Msg("找不到脚本：" + script); return; }
         string arguments = "-NoProfile -ExecutionPolicy Bypass -File \"" + script + "\"";
         if (!string.IsNullOrEmpty(extraArgs)) arguments += " " + extraArgs;
@@ -93,8 +106,13 @@ static class Program
         psi.WorkingDirectory = workDir;
         psi.WindowStyle = ProcessWindowStyle.Hidden;
 
-        var p = Process.Start(psi);
-        if (wait && p != null) p.WaitForExit();
+        try
+        {
+            var p = Process.Start(psi);
+            LauncherLog("started pid=" + (p == null ? -1 : p.Id));
+            if (wait && p != null) p.WaitForExit();
+        }
+        catch (Exception ex) { LauncherLog("start failed: " + ex.Message); throw; }
     }
 
     static void Msg(string text)

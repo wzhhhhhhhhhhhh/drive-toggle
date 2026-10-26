@@ -117,7 +117,7 @@ function Find-Lnk ($baseName) {
 }
 
 $overall = Get-SystemState
-$expectMaster = if ($overall.State -eq 'on') { 'toggle-on.ico' } else { 'toggle-off.ico' }
+$expectMaster = if ($overall.Online -gt 0) { 'toggle-on.ico' } else { 'toggle-off.ico' }
 $masterLnk = Find-Lnk $script:MasterName
 if ($masterLnk) {
     $icon = Get-LnkIcon $masterLnk
@@ -333,7 +333,7 @@ if (-not (Test-Path $wpf)) {
 # D6：界面层已全部 WPF，脚本里不得再出现 System.Windows.Forms
 # （ui.ps1 删除后，残留调用会在真机上报「找不到类型」——上次初始化就是这么挂的）
 $wf = @()
-Get-ChildItem (Join-Path $rootDir 'app') -Filter '*.ps1' | ForEach-Object {
+Get-ChildItem $appDir -Filter '*.ps1' | Where-Object { $_.Name -ne 'test.ps1' } | ForEach-Object {
     $hits = Select-String -Path $_.FullName -Pattern 'System\.Windows\.Forms'
     foreach ($h in $hits) { $wf += "$($_.Name):$($h.LineNumber)" }
 }
@@ -385,8 +385,14 @@ try {
         $j = Get-Content $cfgSb -Raw -Encoding UTF8 | ConvertFrom-Json
         if (@($j.disks).Count -eq 1) { T-Ok 'T3' '初始化为单盘时写 1 条配置' }
         else { T-Fail 'T3' '单盘配置条数不对' "实际 $(@($j.disks).Count)" }
-        if ($j.disks[0].serial -and $j.disks[0].name -and $j.disks[0].letter) { T-Ok 'T4' '配置字段齐全（serial/name/letter）' }
-        else { T-Fail 'T4' '配置字段缺失' ($j | ConvertTo-Json -Depth 5 -Compress) }
+        $d0 = $j.disks[0]
+        $bad = @()
+        if (-not $d0.serial) { $bad += 'serial' }
+        if (-not $d0.name) { $bad += 'name' }
+        if (-not $d0.bus) { $bad += 'bus' }
+        if ($d0.serial -ne ([string]$d0.serial).Trim()) { $bad += 'serial 有空白' }
+        if ($bad.Count -eq 0) { T-Ok 'T4' '配置字段齐全（serial/name/bus，且已 trim）' }
+        else { T-Fail 'T4' '配置字段有问题' (($bad -join ', ') + ' | ' + ($j | ConvertTo-Json -Depth 5 -Compress)) }
     }
 
     # 勾两块
@@ -413,6 +419,30 @@ try {
     T-Fail 'T3' '初始化沙箱测试异常' $_.Exception.Message
 }
 
+# D7：同一个脚本里不得出现「只差大小写」的变量名
+# PowerShell 变量名大小写不敏感，$Targets 和 $targets 是同一个变量，
+# 曾经因此把「全量盘列表」覆盖成「单块盘」，导致总开关图标算错。
+$collisions = @()
+Get-ChildItem $appDir -Filter '*.ps1' | Where-Object { $_.Name -ne 'test.ps1' } | ForEach-Object {
+    $file = $_
+    $text = Get-Content $file.FullName -Raw -Encoding UTF8
+    $names = [regex]::Matches($text, '\$([A-Za-z_][A-Za-z0-9_]*)') | ForEach-Object { $_.Groups[1].Value }
+    $groups = $names | Group-Object { $_.ToLower() } | Where-Object { ($_.Group | Sort-Object -Unique).Count -gt 1 }
+    foreach ($g in $groups) {
+        $spellings = ($g.Group | Sort-Object -Unique) -join ' / '
+        $collisions += "$($file.Name)：$spellings"
+    }
+}
+if ($collisions.Count -eq 0) { T-Ok 'D7' '没有「只差大小写」的变量名冲突' }
+else { T-Fail 'D7' '存在只差大小写的变量名（会互相覆盖）' (($collisions | Select-Object -First 3) -join ' | ') }
+
+# D8：toggle-all 的「全量」与「本次目标」必须是两个变量，且都先赋全量
+# （曾经把 $targets 改名时漏了非 -Only 分支，导致总开关点下去什么都不做）
+$toggleSrc = Get-Content (Join-Path $appDir 'toggle-all.ps1') -Raw -Encoding UTF8
+$hasAll = $toggleSrc -match '\$allTargets\s*=\s*@\(\$Targets\)'
+$hasOp  = $toggleSrc -match '\$opTargets\s*=\s*@\(\$Targets\)'
+if ($hasAll -and $hasOp) { T-Ok 'D8' '总开关模式的目标列表已正确初始化' }
+else { T-Fail 'D8' 'toggle-all 的 $opTargets 初始化可能缺失（总开关会点不动）' "allTargets=$hasAll opTargets=$hasOp" }
 # ---------- 汇总 ----------
 Write-Host ''
 Write-Host '=== 结果 ===' -ForegroundColor Cyan

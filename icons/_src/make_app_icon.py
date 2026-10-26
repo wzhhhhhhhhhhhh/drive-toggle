@@ -12,8 +12,8 @@ OUT = os.path.join(ROOT, "app.ico")
 
 SIZE = 512
 GREEN = (16, 155, 94, 255)      # #109B5E —— 与「已挂载」状态色一致
-CANVAS_FIT = 0.94               # 宽度占比
-STRETCH_Y = 1.20                # 硬盘字形偏扁，竖向拉伸一点，任务栏里才不显小
+CANVAS_FIT = 0.98               # 宽度占比（留 1% 边，16px 不至于被切）
+STRETCH_Y = 1.28                # 硬盘字形偏扁，竖向拉伸，任务栏里才不显小
 
 
 def main():

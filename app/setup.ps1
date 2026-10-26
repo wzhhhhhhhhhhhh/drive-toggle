@@ -100,7 +100,7 @@ foreach ($n in $picked) {
     $name = if ($letter) { "$letter 盘" } else { "磁盘$($r.Disk.Number)" }
     $desc = '{0} · {1} GB · {2}' -f $r.Model, $r.SizeGB, $r.Bus
     $diskCfg += [ordered]@{
-        serial    = [string]$r.Disk.SerialNumber
+        serial    = ([string]$r.Disk.SerialNumber).Trim()
         name      = $name
         desc      = $desc
         bus       = $r.Bus

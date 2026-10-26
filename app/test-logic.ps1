@@ -252,6 +252,22 @@ else { No 'P5' '卸载进度没到 100%' '' }
 # 回调文字要能说清当前在做什么
 $texts = @($script:PROG | ForEach-Object { $_.Text })
 if ($texts -match '正在卸载') { Ok 'P6' '回调文字包含具体动作' } else { No 'P6' '回调文字太笼统' ($texts -join ' | ') }
+# ---------- 8) 混合状态（一块在线一块脱机） ----------
+Write-Host ''
+Write-Host '8) 混合状态语义' -ForegroundColor White
+
+$mixed = [pscustomobject]@{ State = 'on'; Online = 1; Offline = 1; Absent = 0; Detail = 'A=在线 / B=脱机' }
+Eq 'X1' (Get-MasterIconName $mixed.State) 'toggle-on.ico' '一块在线时总开关图标仍是「开」'
+Eq 'X2' (Get-ToggleDirection -State $mixed.State) 'unmount' '一块在线时点总开关 = 全部断开'
+$d = Get-MasterDescription -State $mixed
+if ($d -like '*1 在线 / 1 脱机*' -and $d -like '*全部断开*') { Ok 'X3' "混合状态描述：$d" }
+else { No 'X3' "混合状态描述不对：$d" '' }
+
+$allOff = [pscustomobject]@{ State = 'off'; Online = 0; Offline = 2; Absent = 0; Detail = '' }
+Eq 'X4' (Get-MasterIconName $allOff.State) 'toggle-off.ico' '全部脱机时总开关图标是「关」'
+Eq 'X5' (Get-ToggleDirection -State $allOff.State) 'mount' '全部脱机时点总开关 = 全部接入'
+if ((Get-MasterDescription -State $allOff) -like '*全部脱机*') { Ok 'X6' '全部脱机描述正确' }
+else { No 'X6' '全部脱机描述不对' (Get-MasterDescription -State $allOff) }
 # ---------- 汇总 ----------
 Write-Host ''
 Write-Host '=== 逻辑测试结果 ===' -ForegroundColor Cyan

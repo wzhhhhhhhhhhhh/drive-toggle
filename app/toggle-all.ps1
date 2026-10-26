@@ -47,7 +47,8 @@ if (-not $script:ConfigOk) {
 }
 
 # ---- 选目标 ----
-$targets = $Targets
+$allTargets = @($Targets)      # 全量：刷新图标、统计总状态时永远用这一份
+$opTargets  = @($Targets)      # 本次要操作的盘：-Only 时只剩一块
 $single = $null
 if ($Only -gt 0) {
     if ($Only -gt @($Targets).Count) {
@@ -55,7 +56,7 @@ if ($Only -gt 0) {
         exit 1
     }
     $single = @($Targets)[$Only - 1]
-    $targets = @($single)
+    $opTargets = @($single)
 }
 $title = if ($single) { "$($script:MasterName) - $($single.Label)" } else { $script:MasterName }
 
@@ -70,7 +71,7 @@ try {
     $logs = Join-Path $script:Root 'logs'
     $sw = [Diagnostics.Stopwatch]::StartNew()
 
-    $before = Get-SystemState -DiskList $targets
+    $before = Get-SystemState -DiskList $opTargets
     $dir = Get-ToggleDirection -State $before.State -ForceMount:$Mount -ForceUnmount:$Unmount
     $dirCN = if ($dir -eq 'mount') { '挂载' } else { '卸载' }
     $tag = if ($DryRun) { '切换(演练)' } else { "切换(→$dirCN)" }
@@ -80,7 +81,7 @@ try {
     # 这样窗口在干活期间仍可拖动、可被别的窗口盖住。
     $dialog = Show-OperationDialog -Title $title -Direction $dir `
         -CorePath (Join-Path $PSScriptRoot 'dd-core.ps1') `
-        -Targets $targets -Force:$Force -DryRun:$DryRun `
+        -Targets $opTargets -Force:$Force -DryRun:$DryRun `
         -LogDir $logs -ActionLabel $tag
 
     if ($dialog.Error) {
@@ -96,14 +97,25 @@ try {
     }
 
     if (-not $DryRun) {
+        # 刷新图标与描述。磁盘状态刚变时枚举可能滞后，所以写完等一拍再复核一次，
+        # 避免出现「一块在线一块脱机、总开关却是灰的」这种不一致。
         $icons = Join-Path $script:Root 'icons'
-        $overall = Get-SystemState
-        [void](Update-ToggleShortcut -State $overall -LnkPath (Get-ShortcutCandidates $script:MasterName) -IconDir $icons)
-        foreach ($t in $Targets) {
-            $info = Get-DiskRuntimeInfo $t
-            $st = if ($info.State -eq 'on') { 'on' } else { 'off' }
-            [void](Update-DiskShortcut -State $st -Letter $info.Letter -Name $info.Name -IconDir $icons)
+        $masterLinks = Get-ShortcutCandidates $script:MasterName
+
+        $paint = {
+            $overall = Get-SystemState -DiskList $allTargets
+            [void](Update-ToggleShortcut -State $overall -LnkPath $masterLinks -IconDir $icons)
+            foreach ($t2 in $allTargets) {
+                $info = Get-DiskRuntimeInfo $t2
+                $st2 = if ($info.State -eq 'on') { 'on' } else { 'off' }
+                [void](Update-DiskShortcut -State $st2 -Letter $info.Letter -Name $info.Name -IconDir $icons)
+            }
+            return $overall
         }
+
+        $null = & $paint
+        Start-Sleep -Milliseconds 400
+        $null = & $paint      # 磁盘枚举有延迟，隔一拍再按最新状态刷一次
         try { ie4uinit.exe -show | Out-Null } catch { }
     }
 
