@@ -19,6 +19,13 @@ $script:UiConfirmXaml  = Join-Path $PSScriptRoot 'ui-confirm.xaml'
 
 function Initialize-Wpf {
     if ($script:WpfReady) { return }
+
+    # 让任务栏把窗口算作本程序（而不是 powershell.exe），图标才用我们自己的
+    try {
+        $exe = Join-Path (Split-Path $PSScriptRoot -Parent) '初始化.exe'
+        [void][DshWin32.Api]::SetCurrentProcessExplicitAppUserModelID($exe)
+    } catch { }
+
     if (-not [System.Windows.Application]::Current) {
         $script:WpfApp = New-Object System.Windows.Application
         $script:WpfApp.ShutdownMode = [System.Windows.ShutdownMode]::OnExplicitShutdown
@@ -40,6 +47,7 @@ if (-not ('DshWin32' -as [type])) {
 [DllImport("user32.dll")] public static extern int GetWindowLong(IntPtr hWnd, int nIndex);
 [DllImport("user32.dll")] public static extern int SetWindowLong(IntPtr hWnd, int nIndex, int dwNewLong);
 [DllImport("user32.dll")] public static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int X, int Y, int cx, int cy, uint uFlags);
+[DllImport("shell32.dll", CharSet = CharSet.Unicode)] public static extern int SetCurrentProcessExplicitAppUserModelID(string AppID);
 '@
 }
 
