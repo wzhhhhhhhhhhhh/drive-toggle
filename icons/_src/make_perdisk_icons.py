@@ -16,12 +16,15 @@
 总开关用的 toggle-on/off.ico 不受影响。
 """
 import os
+WINDIR = os.environ.get('WINDIR', r'C:\Windows')
+FONTDIR = os.path.join(WINDIR, 'Fonts')
 import struct
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
-SRC = r"C:\Apps\Drive-Toggle\icons\_src"
-OUTDIR = r"C:\Apps\Drive-Toggle\icons"
+HERE = os.path.dirname(os.path.abspath(__file__))
+SRC = HERE
+OUTDIR = os.path.join(os.path.dirname(HERE), "disks")
 PREV = os.path.join(SRC, "perdisk")
 os.makedirs(PREV, exist_ok=True)
 TMP = os.path.join(OUTDIR, "build")
@@ -31,7 +34,7 @@ GREEN = (16, 124, 16, 255)
 GRAY = (108, 116, 130, 255)
 WHITE = (255, 255, 255, 255)
 CLEAR = (0, 0, 0, 0)
-F_BOLD = r"C:\Windows\Fonts\segoeuib.ttf"
+F_BOLD = os.path.join(FONTDIR, 'segoeuib.ttf')
 SS = 8
 SIZES = [16, 20, 24, 32, 40, 48, 64, 96, 128, 256]
 
@@ -163,8 +166,8 @@ CHECK = ["D", "E", "F"]
 W, H = 980, 620
 sheet = Image.new("RGB", (W, H), (250, 251, 252))
 sd = ImageDraw.Draw(sheet)
-F_CNB = ImageFont.truetype(r"C:\Windows\Fonts\msyhbd.ttc", 18)
-F_CN = ImageFont.truetype(r"C:\Windows\Fonts\msyh.ttc", 13)
+F_CNB = ImageFont.truetype(os.path.join(FONTDIR, 'msyhbd.ttc'), 18)
+F_CN = ImageFont.truetype(os.path.join(FONTDIR, 'msyh.ttc'), 13)
 sd.text((20, 12), "每盘图标（方案A · 已抹掉指示灯圆点）", font=F_CNB, fill=(28, 34, 44))
 
 for i, letter in enumerate(CHECK):

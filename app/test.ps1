@@ -84,9 +84,7 @@ Write-Host '4) 图标文件' -ForegroundColor White
 foreach ($n in 'toggle-on.ico', 'toggle-off.ico') {
     if (Test-Path (Join-Path $icons $n)) { T-Ok 'I1' $n } else { T-Fail 'I1' "缺少 $n" '总开关图标' }
 }
-foreach ($n in 'mount-v4.ico', 'unmount-v4.ico') { 
-    if (Test-Path (Join-Path $icons $n)) { T-Ok 'I2' $n } else { T-Skip 'I2' "$n 不存在" '旧的双按钮图标，可能已清理' }
-}
+
 
 $missing = @()
 foreach ($L in [char[]]'ABCDEFGHIJKLMNOPQRSTUVWXYZ') {

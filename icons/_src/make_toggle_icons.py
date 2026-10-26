@@ -1,4 +1,4 @@
-﻿"""生成单按钮「切换」图标：盘色=当前状态，插头徽标色=切换后的状态。
+"""生成单按钮「切换」图标：盘色=当前状态，插头徽标色=切换后的状态。
 
 输出：
   icons/toggle-on.ico   （当前已挂载：绿盘 + 灰插头=点击将断开）
@@ -6,11 +6,14 @@
   icons/_src/toggle/_final.png （预览）
 """
 import os
+WINDIR = os.environ.get('WINDIR', r'C:\Windows')
+FONTDIR = os.path.join(WINDIR, 'Fonts')
 import struct
 from PIL import Image, ImageDraw, ImageFont
 
-SRC = r"C:\Apps\Drive-Toggle\icons\_src"
-OUTDIR = r"C:\Apps\Drive-Toggle\icons"
+HERE = os.path.dirname(os.path.abspath(__file__))
+SRC = HERE
+OUTDIR = os.path.dirname(HERE)
 PREV = os.path.join(SRC, "toggle")
 os.makedirs(PREV, exist_ok=True)
 TMP = os.path.join(OUTDIR, "build")
@@ -102,7 +105,7 @@ def read_frames(path):
 on = read_frames(os.path.join(OUTDIR, "toggle-on.ico"))
 off = read_frames(os.path.join(OUTDIR, "toggle-off.ico"))
 
-FONT = r'C:\Windows\Fonts\msyhbd.ttc'
+FONT = os.path.join(FONTDIR, 'msyhbd.ttc')
 font = ImageFont.truetype(FONT, 17)
 small = ImageFont.truetype(FONT, 14)
 sheet = Image.new('RGB', (760, 620), (252, 252, 253))
