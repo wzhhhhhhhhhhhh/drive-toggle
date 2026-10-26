@@ -39,7 +39,7 @@ $requiredApp = @('dd-core.ps1', 'ui-picker.xaml', 'setup.ps1', 'install.ps1',
 foreach ($f in $requiredApp) {
     if (Test-Path (Join-Path $appDir $f)) { T-Ok 'F1' "app\$f" } else { T-Fail 'F1' "缺少 app\$f" '文件不存在' }
 }
-foreach ($f in 'config.json', 'README.md', 'TESTING.md', '初始化.exe') {
+foreach ($f in 'config.json', 'README.md', 'DEVELOPING.md', 'TESTING.md', '初始化.exe') {
     if (Test-Path (Join-Path $here $f)) { T-Ok 'F1' $f } else { T-Fail 'F1' "缺少 $f" '文件不存在' }
 }
 if (Test-Path $appDir -PathType Container) { T-Ok 'F1' 'app\ 目录存在' } else { T-Fail 'F1' 'app\ 目录缺失' '' }
@@ -320,7 +320,7 @@ if (-not (Test-Path $wpf)) {
             $secrets += $m.Groups[1].Value
         }
         $leaks = @()
-        foreach ($docFile in 'README.md', 'TESTING.md') {
+        foreach ($docFile in 'README.md', 'DEVELOPING.md', 'TESTING.md') {
             $docPath = Join-Path $here $docFile
             if (-not (Test-Path $docPath)) { continue }
             $text = Get-Content $docPath -Raw -Encoding UTF8
