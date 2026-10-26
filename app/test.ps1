@@ -168,7 +168,21 @@ foreach ($n in @('Disk-Mount', 'Disk-Unmount', 'Disk-Toggle') + (1..@($Targets).
     }
 }
 if ($deadTasks.Count -eq 0) { T-Ok 'J3' '所有计划任务指向的脚本都存在' }
-else { T-Fail 'J3' '有计划任务指向不存在的脚本' (($deadTasks | Select-Object -First 3) -join ' | ') + ' —— 双击「初始化.cmd」重建' }
+else { T-Fail 'J3' '有计划任务指向不存在的脚本' (($deadTasks | Select-Object -First 3) -join ' | ') + ' —— 双击「初始化.exe」重建' }
+
+# J4：任务动作的可执行文件必须存在，且必须是仓库自带的 初始化.exe
+# （挪目录/换机器后最容易失效的一环：还指向已删除的 launcher.exe）
+$badExe = @()
+foreach ($n in @('Disk-Mount', 'Disk-Unmount', 'Disk-Toggle') + (1..@($Targets).Count | ForEach-Object { "Disk-Toggle-$_" })) {
+    $t = Get-ScheduledTask -TaskName $n -ErrorAction SilentlyContinue
+    if (-not $t) { continue }
+    $act = $t.Actions | Select-Object -First 1
+    if (-not $act.Execute) { $badExe += "$n → 没有可执行文件"; continue }
+    if (-not (Test-Path $act.Execute)) { $badExe += "$n → $(Split-Path $act.Execute -Leaf) 不存在"; continue }
+    if ((Split-Path $act.Execute -Leaf) -ne '初始化.exe') { $badExe += "$n → 指向 $(Split-Path $act.Execute -Leaf)" }
+}
+if ($badExe.Count -eq 0) { T-Ok 'J4' '计划任务均指向仓库自带的 初始化.exe' }
+else { T-Fail 'J4' '计划任务的可执行文件不对' ((($badExe | Select-Object -First 3) -join ' | ') + ' —— 双击 初始化.exe 重建') }
 
 # ---------- 7. 日志格式 ----------
 Write-Host ''
