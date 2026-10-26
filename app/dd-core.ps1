@@ -520,7 +520,7 @@ function Update-ToggleShortcut {
         [string[]]$LnkPath,
         [string]$IconDir
     )
-    $icon = Join-Path $IconDir (Get-MasterIconName $State)
+    $icon = Get-IconPath $IconDir (Get-MasterIconName $State)
     $desc = if ($State -eq 'on') { '当前：已挂载 · 点击将断开' } else { '当前：已卸载 · 点击将接入' }
     return Update-ShortcutIcon -LnkPath $LnkPath -IconPath $icon -Description $desc
 }
@@ -536,8 +536,8 @@ function Update-DiskShortcut {
     try {
         $base = "$($script:MasterName) - $Name"
         $upper = if ($Letter) { $Letter.ToUpper() } else { '' }
-        $icon = Join-Path $IconDir (Get-DiskIconName -State $State -Letter $upper)
-        if (-not (Test-Path $icon)) { $icon = Join-Path $IconDir (Get-MasterIconName $State) }
+        $icon = Get-IconPath $IconDir (Get-DiskIconName -State $State -Letter $upper)
+        if (-not (Test-Path $icon)) { $icon = Get-IconPath $IconDir (Get-MasterIconName $State) }
         $tag = if ($upper) { "$upper`: 盘" } else { $Name }
         $desc = if ($State -eq 'on') { "当前：已挂载 · 点击将断开（$tag）" } else { "当前：已卸载 · 点击将接入（$tag）" }
         return Update-ShortcutIcon -LnkPath (Get-ShortcutCandidates $base) -IconPath $icon -Description $desc
@@ -670,6 +670,12 @@ function Get-DriveProcesses {
 
 # ---- 纯函数：图标与方向决策（不碰磁盘，便于测试） ----
 
+function Get-IconPath {
+    # 图标布局：总开关在 icons\，单盘在 icons\disks\
+    param([string]$IconDir, [string]$Name)
+    if ($Name -like 'disk-*') { return (Join-Path (Join-Path $IconDir 'disks') $Name) }
+    return (Join-Path $IconDir $Name)
+}
 function Get-MasterIconName {
     # 总开关图标名
     param([string]$State)

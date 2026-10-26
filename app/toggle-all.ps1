@@ -35,7 +35,6 @@ trap {
 }
 
 . (Join-Path $PSScriptRoot 'dd-core.ps1')
-. (Join-Path $PSScriptRoot 'ui.ps1')
 . (Join-Path $PSScriptRoot 'ui-wpf.ps1')
 
 if (-not $script:ConfigOk) {

@@ -144,44 +144,27 @@ D:\Tools\Drive-Toggle\
 ├── LOCAL.md                本机专属信息（型号/序列号/盘内清单，不进仓库）
 ├── app\                    内部实现，平时不用看
 │   ├── dd-core.ps1         共用逻辑（读配置、找盘、挂载、卸载、SMART、日志）
-│   ├── ui.ps1              选盘窗 / 提示框（WinForms）
-│   ├── ui-wpf.ps1          进度窗逻辑（WPF）
+│   ├── ui-wpf.ps1          界面层逻辑（选盘 / 进度 / 提示，全部 WPF）
+│   ├── ui-picker.xaml      选盘窗界面
 │   ├── ui-progress.xaml    进度窗界面
 │   ├── setup.ps1           初始化向导
 │   ├── install.ps1         建计划任务 + 桌面快捷方式
 │   ├── mount-all.ps1       挂载入口
 │   ├── unmount-all.ps1     卸载入口
 │   ├── toggle-all.ps1      切换入口（总开关 / -Only N 单盘）
-│   ├── test.ps1            静态检查 + 集成测试（66 项）
+│   ├── test.ps1            静态检查 + 集成测试（67 项）
 │   ├── test-logic.ps1      内存假盘逻辑测试（51 条）
 │   ├── run-e2e.ps1         真机端到端（可选）
-│   └── _launcher_src.cs    初始化.exe 的源码（可自行重编译）
+│   ├── _launcher_src.cs    初始化.exe 的源码
+│   └── build-launcher.ps1  重新编译 初始化.exe（嵌入应用图标）
 ├── icons\
+│   ├── app.ico             应用图标（嵌入 初始化.exe）
 │   ├── toggle-on.ico       总开关：已挂载
 │   ├── toggle-off.ico      总开关：已卸载
-│   ├── disk-A-on.ico …     每盘图标 A–Z（26 字母 × 2 状态 = 52 个）
+│   ├── disks\              每盘图标 A–Z（26 字母 × 2 状态 = 52 个）
 │   ├── _archive\           已停用的旧图标
-│   └── _src\               图标生成脚本 + 字形素材（_archive\ 里是设计草稿）
+│   └── _src\               图标生成脚本 + 字形素材（含 app.ico 生成器）
 └── logs\                   运行日志（不进仓库）
-    ├── actions.csv         结果汇总
-    └── steps.csv           过程日志（每个阶段一行）
-```
-
-> `初始化.exe` 与 `app\_launcher_src.cs` 是同一个程序：**没有任何绝对路径**，
-> 它按自己所在的目录去找 `app\*.ps1`，所以整个文件夹拷到别的电脑也能直接用。
-
-**计划任务**（这是能"双击不弹 UAC"的原因）：
-
-- `Disk-Mount` → 最高权限运行 `mount-all.ps1`
-- `Disk-Unmount` → 最高权限运行 `unmount-all.ps1`
-- `Disk-Toggle` → 最高权限运行 `toggle-all.ps1`（总开关）
-- `Disk-Toggle-1 … N` → `toggle-all.ps1 -Only N`（每盘一个，N 由 config.json 的顺序决定）
-
-快捷方式只是 `schtasks /run /tn "Disk-Mount"`（或 `Disk-Toggle`），本身不干活。
-它们放在**桌面**上（`%USERPROFILE%\Desktop\`）。想固定到开始屏幕就右键固定，
-安装器不往 `%AppData%\…\Start Menu\Programs\` 里装东西。
-
----
 
 ## 5. 必读注意事项
 
@@ -191,11 +174,11 @@ D:\Tools\Drive-Toggle\
 
 3. **F 盘拔插后不会自动联机**，仍然是脱机状态。插上后点一次「挂载硬盘」。（这是刻意的：物理拔插不能绕过你的设置。）
 
-4. **F 盘盘符可能变**（F: 被占用时变 G:）。脚本按序列号找盘、动态取盘符，不受影响，但结果表里会显示实际字母。
+4. **盘符可能变**（被占用时 Windows 会换一个字母）。脚本按序列号找盘、动态取盘符，不受影响，但结果表里会显示实际字母。
 
-5. **几个游戏客户端目录还在 D 盘**（`Epic Games` / `WeGame` / `XboxGames`）。脱机时启动它们会报"库缺失/游戏未安装"，不用时退出即可。Steam 已卸载，不再是影响因素。
+5. **装了游戏平台的机器要注意**：游戏库在目标盘上时，脱机后启动平台会报"库缺失 / 游戏未安装"，不用时退出即可。
 
-6. **默认下载到 D: 的软件**（IDM、迅雷、qBittorrent）脱机时会失败重试，建议把下载目录改到 C 盘。
+6. **默认下载到目标盘的软件**（下载器、同步盘）在脱机时会失败重试，建议把它们的下载目录挪到系统盘。
 
 7. **系统自动播放已关闭**（见第 9 节），插 U 盘不会再弹"要做什么"的提示。
 
@@ -378,7 +361,13 @@ Get-StorageReliabilityCounter -PhysicalDisk (Get-PhysicalDisk) |
 
 ## 12. 图标说明
 
-**双按钮模式**（`mount-v4.ico` / `unmount-v4.ico`）：
+**文件放哪**：总开关图标在 `icons\` 根，每盘图标在 `icons\disks\`，应用图标是 `icons\app.ico`。
+代码里统一走 `dd-core.ps1` 的 `Get-IconPath`，不要在别处手拼路径。
+
+**应用图标**（`icons\app.ico`）：深墨圆角方块 + 白色硬盘 + 蓝色指示灯，嵌入 `初始化.exe`。
+改它：编辑 `icons\_src\make_app_icon.py` → `python icons\_src\make_app_icon.py` → `app\build-launcher.ps1`。
+
+**双按钮模式**（`mount-v4.ico` / `unmount-v4.ico`，已归档）：
 
 - 造型：Fluent 2 风格的硬盘字形 + 右下角插头徽标（挂载=插上，卸载=断开）
 - 配色：绿 `#107C10` / 红 `#C42B1C`，**透明底**

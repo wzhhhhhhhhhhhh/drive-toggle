@@ -124,7 +124,7 @@ function New-DiskShortcut {
 }
 
 $sysState   = Get-SystemState
-$masterIcon = Join-Path $icons (Get-MasterIconName $sysState.State)
+$masterIcon = Get-IconPath $icons (Get-MasterIconName $sysState.State)
 $masterDesc = if ($sysState.State -eq 'on') { '当前：已挂载 · 点击将断开' } else { '当前：已卸载 · 点击将接入' }
 New-DiskShortcut -Label $master -TaskName 'Disk-Toggle' -IconPath $masterIcon -Description $masterDesc
 
@@ -133,8 +133,8 @@ for ($i = 1; $i -le $list.Count; $i++) {
     $info = Get-DiskRuntimeInfo $t
     $st = if ($info.State -eq 'on') { 'on' } else { 'off' }
     $letter = if ($info.Letter) { $info.Letter.ToUpper() } else { '' }
-    $icon = Join-Path $icons (Get-DiskIconName -State $st -Letter $letter)
-    if (-not (Test-Path $icon)) { $icon = Join-Path $icons (Get-MasterIconName $st) }
+    $icon = Get-IconPath $icons (Get-DiskIconName -State $st -Letter $letter)
+    if (-not (Test-Path $icon)) { $icon = Get-IconPath $icons (Get-MasterIconName $st) }
     $tag = if ($letter) { "$letter`: 盘" } else { $t.Label }
     $desc = if ($st -eq 'on') { "当前：已挂载 · 点击将断开（$tag）" } else { "当前：已卸载 · 点击将接入（$tag）" }
     New-DiskShortcut -Label ("$master - " + $t.Label) -TaskName "Disk-Toggle-$i" -IconPath $icon -Description $desc

@@ -1,7 +1,9 @@
 ﻿# ui-wpf.ps1 —— WPF 界面层
 #
-# 与 ui.ps1（WinForms 遗留：选盘窗 / 提示框）并存，逐个窗口迁移。
-# 目前接管：操作进度窗 Show-OperationDialog
+# 本文件是唯一的界面层：
+#   Show-DiskPicker        初始化选盘窗
+#   Show-OperationDialog   操作进度窗
+#   Show-UiMessage         提示框
 #
 # 关键设计：
 #   磁盘操作跑在**后台 runspace**里，UI 线程只负责刷新。
@@ -12,6 +14,7 @@ Add-Type -AssemblyName PresentationCore
 Add-Type -AssemblyName WindowsBase
 
 $script:UiProgressXaml = Join-Path $PSScriptRoot 'ui-progress.xaml'
+$script:UiPickerXaml   = Join-Path $PSScriptRoot 'ui-picker.xaml'
 
 function Initialize-Wpf {
     if ($script:WpfReady) { return }
@@ -110,6 +113,152 @@ function New-UiWorker {
     return [pscustomobject]@{ Sync = $sync; PS = $ps; Handle = $handle; Runspace = $rs }
 }
 
+# ---------------------------------------------------------------- 选盘窗口
+# Rows: 每项需含 Index / Letters / Model / SizeGB / Bus / Media
+# 返回被勾选的 Index 数组（按行序）
+function Show-DiskPicker {
+    param($Rows)
+
+    Initialize-Wpf
+
+    $rows = @($Rows)
+    if ($rows.Count -eq 0) { return @() }
+
+    $win = Load-UiWindow $script:UiPickerXaml
+    $rowHost = $win.FindName('RowHost')
+    $countText = $win.FindName('CountText')
+    $okBtn = $win.FindName('OkBtn')
+    $cancelBtn = $win.FindName('CancelBtn')
+    $closeX = $win.FindName('CloseX')
+
+    $ink    = New-Object System.Windows.Media.SolidColorBrush ([System.Windows.Media.ColorConverter]::ConvertFromString('#171C26'))
+    $muted  = New-Object System.Windows.Media.SolidColorBrush ([System.Windows.Media.ColorConverter]::ConvertFromString('#848D9E'))
+    $soft   = New-Object System.Windows.Media.SolidColorBrush ([System.Windows.Media.ColorConverter]::ConvertFromString('#F6F8FB'))
+    $selBg  = New-Object System.Windows.Media.SolidColorBrush ([System.Windows.Media.ColorConverter]::ConvertFromString('#EBF8F1'))
+    $line   = New-Object System.Windows.Media.SolidColorBrush ([System.Windows.Media.ColorConverter]::ConvertFromString('#E5EAF1'))
+    $green  = New-Object System.Windows.Media.SolidColorBrush ([System.Windows.Media.ColorConverter]::ConvertFromString('#109B5E'))
+
+    # 行高随数量自适应：超过 6 行出滚动条
+    $perRow = 74
+    $win.Height = [math]::Min(700, 250 + [math]::Min($rows.Count, 6) * $perRow)
+
+    $global:__dsPickerChecks = New-Object System.Collections.ArrayList
+    foreach ($r in $rows) {
+        $border = New-Object System.Windows.Controls.Border
+        $border.CornerRadius = New-Object System.Windows.CornerRadius 10
+        $border.Padding = New-Object System.Windows.Thickness 16, 12, 16, 12
+        $border.Margin = New-Object System.Windows.Thickness 0, 0, 0, 8
+        $border.Background = $soft
+        $border.BorderBrush = $line
+        $border.BorderThickness = New-Object System.Windows.Thickness 1
+        $border.Cursor = [System.Windows.Input.Cursors]::Hand
+
+        $grid = New-Object System.Windows.Controls.Grid
+        foreach ($w in 'Auto', 'Auto', '*', 'Auto') {
+            $col = New-Object System.Windows.Controls.ColumnDefinition
+            $col.Width = if ($w -eq 'Auto') { [System.Windows.GridLength]::Auto } elseif ($w -eq '*') { New-Object System.Windows.GridLength 1, ([System.Windows.GridUnitType]::Star) } else { [System.Windows.GridLength]::Auto }
+            $grid.ColumnDefinitions.Add($col)
+        }
+
+        $cb = New-Object System.Windows.Controls.CheckBox
+        $cb.Style = $win.FindResource('RowCheck')
+        $cb.Tag = $r.Index
+        [System.Windows.Controls.Grid]::SetColumn($cb, 0)
+        $grid.Children.Add($cb) | Out-Null
+
+        $letter = if ($r.Letters -ne '—') { ($r.Letters -split ',')[0] + ':' } else { '—' }
+        $tbLetter = New-Object System.Windows.Controls.TextBlock
+        $tbLetter.Text = $letter
+        $tbLetter.FontSize = 18
+        $tbLetter.FontWeight = [System.Windows.FontWeights]::SemiBold
+        $tbLetter.Foreground = $ink
+        $tbLetter.VerticalAlignment = 'Center'
+        $tbLetter.Margin = New-Object System.Windows.Thickness 18, 0, 0, 0
+        $tbLetter.MinWidth = 46
+        [System.Windows.Controls.Grid]::SetColumn($tbLetter, 1)
+        $grid.Children.Add($tbLetter) | Out-Null
+
+        $stack = New-Object System.Windows.Controls.StackPanel
+        $stack.VerticalAlignment = 'Center'
+        $tbModel = New-Object System.Windows.Controls.TextBlock
+        $tbModel.Text = $r.Model
+        $tbModel.FontSize = 13
+        $tbModel.Foreground = $ink
+        $tbModel.TextTrimming = 'CharacterEllipsis'
+        $tbMeta = New-Object System.Windows.Controls.TextBlock
+        $tbMeta.Text = ('{0}{1}' -f $r.Bus, $(if ($r.Media -eq 'SSD') { ' · 固态盘' } elseif ($r.Bus -eq 'USB') { ' · 移动硬盘' } else { '' }))
+        $tbMeta.FontSize = 11
+        $tbMeta.Foreground = $muted
+        $tbMeta.Margin = New-Object System.Windows.Thickness 0, 3, 0, 0
+        $stack.Children.Add($tbModel) | Out-Null
+        $stack.Children.Add($tbMeta) | Out-Null
+        [System.Windows.Controls.Grid]::SetColumn($stack, 2)
+        $grid.Children.Add($stack) | Out-Null
+
+        $tbSize = New-Object System.Windows.Controls.TextBlock
+        $tbSize.Text = ('{0} GB' -f $r.SizeGB)
+        $tbSize.FontSize = 12
+        $tbSize.Foreground = $muted
+        $tbSize.VerticalAlignment = 'Center'
+        $tbSize.Margin = New-Object System.Windows.Thickness 16, 0, 0, 0
+        [System.Windows.Controls.Grid]::SetColumn($tbSize, 3)
+        $grid.Children.Add($tbSize) | Out-Null
+
+        $border.Child = $grid
+        $rowHost.Children.Add($border) | Out-Null
+
+        # 点整行也能勾选
+        $border.Add_MouseLeftButtonUp({
+            param($s, $e)
+            $cb.IsChecked = -not $cb.IsChecked
+        }.GetNewClosure())
+        $cb.Add_Checked({
+            param($s, $e)
+            $border.Background = $selBg
+            $border.BorderBrush = $green
+            $n = @($global:__dsPickerChecks | Where-Object { $_.IsChecked }).Count
+            $countText.Text = "已选 $n 块"
+            $okBtn.IsEnabled = ($n -gt 0)
+        }.GetNewClosure())
+        $cb.Add_Unchecked({
+            param($s, $e)
+            $border.Background = $soft
+            $border.BorderBrush = $line
+            $n = @($global:__dsPickerChecks | Where-Object { $_.IsChecked }).Count
+            $countText.Text = if ($n -eq 0) { '尚未选择' } else { "已选 $n 块" }
+            $okBtn.IsEnabled = ($n -gt 0)
+        }.GetNewClosure())
+
+        [void]$global:__dsPickerChecks.Add($cb)
+    }
+
+    $global:__dsPickerResult = $null
+    $okBtn.Add_Click({ $global:__dsPickerResult = 'ok'; $win.Close() }.GetNewClosure())
+    $cancelBtn.Add_Click({ $global:__dsPickerResult = 'cancel'; $win.Close() }.GetNewClosure())
+    $closeX.Add_MouseLeftButtonUp({ $global:__dsPickerResult = 'cancel'; $win.Close() }.GetNewClosure())
+    $win.Add_MouseLeftButtonDown({ try { $win.DragMove() } catch { } })
+
+    $win.ShowDialog() | Out-Null
+
+    $picked = @()
+    if ($global:__dsPickerResult -eq 'ok') {
+        foreach ($cb in $global:__dsPickerChecks) { if ($cb.IsChecked) { $picked += [int]$cb.Tag } }
+    }
+    try { $win.Close() } catch { }
+    return $picked
+}
+
+# ---------------------------------------------------------------- 提示框
+function Show-UiMessage {
+    param([string]$Message, [string]$Title = '磁盘开关', [string]$Kind = 'info')
+    Initialize-Wpf
+    $icon = switch ($Kind) {
+        'error' { [System.Windows.MessageBoxImage]::Error }
+        'warn'  { [System.Windows.MessageBoxImage]::Warning }
+        default { [System.Windows.MessageBoxImage]::Information }
+    }
+    [void][System.Windows.MessageBox]::Show($Message, $Title, [System.Windows.MessageBoxButton]::OK, $icon)
+}
 # ---------------------------------------------------------------- 操作进度窗
 # 两种用法：
 #   1) -CorePath -Targets -Direction  → 后台 runspace 执行（界面全程可拖动）

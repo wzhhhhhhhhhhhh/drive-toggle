@@ -34,8 +34,8 @@ Write-Host ''
 
 # ---------- 1. 文件完整性 ----------
 Write-Host '1) 文件完整性' -ForegroundColor White
-$requiredApp = @('dd-core.ps1', 'ui.ps1', 'setup.ps1', 'install.ps1',
-                 'mount-all.ps1', 'unmount-all.ps1', 'toggle-all.ps1', 'test.ps1', 'test-logic.ps1', 'ui-wpf.ps1', 'ui-progress.xaml')
+$requiredApp = @('dd-core.ps1', 'ui-picker.xaml', 'setup.ps1', 'install.ps1',
+                 'mount-all.ps1', 'unmount-all.ps1', 'toggle-all.ps1', 'test.ps1', 'test-logic.ps1', 'ui-wpf.ps1', 'ui-progress.xaml', 'ui-picker.xaml')
 foreach ($f in $requiredApp) {
     if (Test-Path (Join-Path $appDir $f)) { T-Ok 'F1' "app\$f" } else { T-Fail 'F1' "缺少 app\$f" '文件不存在' }
 }
@@ -91,7 +91,7 @@ foreach ($n in 'mount-v4.ico', 'unmount-v4.ico') {
 $missing = @()
 foreach ($L in [char[]]'ABCDEFGHIJKLMNOPQRSTUVWXYZ') {
     foreach ($s in 'on', 'off') {
-        if (-not (Test-Path (Join-Path $icons "disk-$L-$s.ico"))) { $missing += "disk-$L-$s.ico" }
+        if (-not (Test-Path (Join-Path $icons "disks\disk-$L-$s.ico"))) { $missing += "disks\disk-$L-$s.ico" }
     }
 }
 if ($missing.Count -eq 0) { T-Ok 'I3' 'A–Z × on/off 共 52 个每盘图标齐全' }
