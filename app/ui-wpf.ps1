@@ -66,19 +66,25 @@ function Set-UiAppWindow {
 }
 
 function Get-UiIcon {
-    # 任务栏 / 标题栏用的应用图标
+    # 任务栏 / 标题栏用的应用图标。
+    # 坑：BitmapImage 读 .ico 只拿**第一帧**（我们的是 16px），系统再把它塞进
+    # 32/40px 的图标位，内容只占四成——这就是「图标看着特别小」的真正原因。
+    # 改用 BitmapDecoder 取最大的一帧，交给系统去缩。
     $p = Join-Path (Split-Path $PSScriptRoot -Parent) 'icons\app.ico'
     if (-not (Test-Path $p)) { return $null }
+    $stream = $null
     try {
-        $img = New-Object System.Windows.Media.Imaging.BitmapImage
-        $img.BeginInit()
-        $img.UriSource = New-Object System.Uri($p)
-        $img.CacheOption = [System.Windows.Media.Imaging.BitmapCacheOption]::OnLoad
-        $img.CreateOptions = [System.Windows.Media.Imaging.BitmapCreateOptions]::IgnoreImageCache
-        $img.EndInit()
-        $img.Freeze()
-        return $img
+        $stream = [IO.File]::OpenRead($p)
+        $dec = [System.Windows.Media.Imaging.BitmapDecoder]::Create(
+            $stream,
+            [System.Windows.Media.Imaging.BitmapCreateOptions]::IgnoreImageCache,
+            [System.Windows.Media.Imaging.BitmapCacheOption]::OnLoad)
+        $frame = $dec.Frames | Sort-Object PixelWidth -Descending | Select-Object -First 1
+        if (-not $frame) { return $null }
+        $frame.Freeze()
+        return $frame
     } catch { return $null }
+    finally { if ($stream) { $stream.Dispose() } }
 }
 function Load-UiWindow {
     param([string]$Path)
