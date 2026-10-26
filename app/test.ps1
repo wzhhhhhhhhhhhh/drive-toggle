@@ -330,6 +330,87 @@ if (-not (Test-Path $wpf)) {
         elseif ($leaks.Count -eq 0) { T-Ok 'D5' "文档已脱敏（校验 $($secrets.Count) 个敏感值）" }
         else { T-Fail 'D5' '文档里还残留本机敏感值' ($leaks -join '; ') }
     }
+# D6：界面层已全部 WPF，脚本里不得再出现 System.Windows.Forms
+# （ui.ps1 删除后，残留调用会在真机上报「找不到类型」——上次初始化就是这么挂的）
+$wf = @()
+Get-ChildItem (Join-Path $rootDir 'app') -Filter '*.ps1' | ForEach-Object {
+    $hits = Select-String -Path $_.FullName -Pattern 'System\.Windows\.Forms'
+    foreach ($h in $hits) { $wf += "$($_.Name):$($h.LineNumber)" }
+}
+if ($wf.Count -eq 0) { T-Ok 'D6' '界面层无 WinForms 残留' }
+else { T-Fail 'D6' '还有脚本在用 WinForms（初始化会崩）' ($wf -join ', ') }
+# ---------- 12. 初始化流程（沙箱：真脚本 + 桩界面，不需要管理员） ----------
+Write-Host ''
+Write-Host '12) 初始化流程（沙箱跑真实 setup.ps1）' -ForegroundColor White
+try {
+    $sb = Join-Path $env:TEMP ('dsh-setup-test-' + (Get-Random))
+    $sbApp = Join-Path $sb 'app'
+    New-Item -ItemType Directory -Path $sbApp -Force | Out-Null
+    Copy-Item (Join-Path $appDir '*.ps1') $sbApp -Force
+    $setupSb = Join-Path $sbApp 'setup.ps1'
+    # 沙箱里去掉管理员要求，其余原样
+    [IO.File]::WriteAllLines($setupSb,
+        (Get-Content $setupSb -Encoding UTF8 | Where-Object { $_ -notmatch '^#Requires' }),
+        (New-Object Text.UTF8Encoding($true)))
+
+    $stubLines = @(
+        '$global:__stubPicker = @(__PICKER__)',
+        '$global:__stubConfirm = ''__CONFIRM__''',
+        'function Show-DiskPicker { param($Rows) return $global:__stubPicker }',
+        'function Show-UiConfirm { param($Message, $Title, $Buttons) return $global:__stubConfirm }',
+        'function Show-UiMessage { param($Message, $Title, $Kind) }',
+        'function Show-OperationDialog { param($Title, $Direction, $Work, $CorePath, $Targets, $Force, $DryRun, $LogDir, $ActionLabel, $HoldOk, $HoldFail)',
+        '    $r = @()',
+        '    if ($Work) { $r = @(& $Work { param($t, $p) }) }',
+        '    return [pscustomobject]@{ Error = $null; Results = $r }',
+        '}'
+    )
+    $stubPath = Join-Path $sbApp 'ui-wpf.ps1'
+
+    function Invoke-SetupSandbox([int[]]$picker, [string]$confirm) {
+        $code = $stubLines -join "`r`n"
+        $code = $code.Replace('__PICKER__', ($picker -join ',')).Replace('__CONFIRM__', $confirm)
+        [IO.File]::WriteAllText($stubPath, $code, (New-Object Text.UTF8Encoding($true)))
+        & powershell -NoProfile -ExecutionPolicy Bypass -File $setupSb -NoInstall *> $null
+        return $LASTEXITCODE
+    }
+
+    $null = Invoke-SetupSandbox @(1) 'No'
+    $cfgSb = Join-Path $sb 'config.json'
+    if (-not (Test-Path $cfgSb)) {
+        T-Fail 'T3' '沙箱没写出 config.json' ''
+    } else {
+        $j = Get-Content $cfgSb -Raw -Encoding UTF8 | ConvertFrom-Json
+        if (@($j.disks).Count -eq 1) { T-Ok 'T3' '初始化为单盘时写 1 条配置' }
+        else { T-Fail 'T3' '单盘配置条数不对' "实际 $(@($j.disks).Count)" }
+        if ($j.disks[0].serial -and $j.disks[0].name -and $j.disks[0].letter) { T-Ok 'T4' '配置字段齐全（serial/name/letter）' }
+        else { T-Fail 'T4' '配置字段缺失' ($j | ConvertTo-Json -Depth 5 -Compress) }
+    }
+
+    # 勾两块
+    $null = Invoke-SetupSandbox @(1, 2) 'No'
+    $j2 = Get-Content $cfgSb -Raw -Encoding UTF8 | ConvertFrom-Json
+    if (@($j2.disks).Count -eq 2) { T-Ok 'T5' '勾两块写 2 条配置' }
+    else { T-Fail 'T5' '多选配置条数不对' "实际 $(@($j2.disks).Count)" }
+
+    # 越界编号：不得写坏配置
+    $before = Get-Content $cfgSb -Raw
+    $null = Invoke-SetupSandbox @(9) 'No'
+    $after = Get-Content $cfgSb -Raw
+    if ($before -eq $after) { T-Ok 'T6' '越界编号被拒，配置未被写坏' }
+    else { T-Fail 'T6' '越界编号仍写入了配置' '' }
+
+    # 沿用现有配置：不重写
+    $before = Get-Content $cfgSb -Raw
+    $null = Invoke-SetupSandbox @(1) 'Yes'
+    if ((Get-Content $cfgSb -Raw) -eq $before) { T-Ok 'T7' '选「沿用」不改配置' }
+    else { T-Fail 'T7' '选「沿用」却改了配置' '' }
+
+    Remove-Item $sb -Recurse -Force -ErrorAction SilentlyContinue
+} catch {
+    T-Fail 'T3' '初始化沙箱测试异常' $_.Exception.Message
+}
+
 # ---------- 汇总 ----------
 Write-Host ''
 Write-Host '=== 结果 ===' -ForegroundColor Cyan

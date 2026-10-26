@@ -28,8 +28,12 @@ trap {
             Add-Content -LiteralPath (Join-Path $logDir 'ui-error.log') -Encoding UTF8
     } catch { }
     try {
-        Add-Type -AssemblyName System.Windows.Forms
-        [void][System.Windows.Forms.MessageBox]::Show("出错了：`n`n$msg`n`n详细信息已写入：`n$rootDir\logs\ui-error.log", '磁盘开关', 'OK', 'Error')
+        # 界面层可能还没加载（比如 dd-core 就失败了），这里兜底加载一次
+        $uiPath = Join-Path $PSScriptRoot 'ui-wpf.ps1'
+        if (Test-Path $uiPath) { . $uiPath }
+        if (Get-Command Show-UiMessage -ErrorAction SilentlyContinue) {
+            [void](Show-UiMessage -Message "出错了：`n`n$msg`n`n详细信息已写入：`n$rootDir\logs\ui-error.log" -Title '磁盘开关' -Kind 'error')
+        }
     } catch { }
     exit 1
 }

@@ -21,8 +21,12 @@ trap {
             Add-Content -LiteralPath (Join-Path $logDir 'ui-error.log') -Encoding UTF8
     } catch { }
     try {
-        Add-Type -AssemblyName System.Windows.Forms
-        [void][System.Windows.Forms.MessageBox]::Show("初始化出错：`n`n$msg`n`n详细信息已写入：`n$rootDir\logs\ui-error.log", '磁盘开关', 'OK', 'Error')
+        # 界面层可能还没加载（比如 dd-core 就失败了），这里兜底加载一次
+        $uiPath = Join-Path $PSScriptRoot 'ui-wpf.ps1'
+        if (Test-Path $uiPath) { . $uiPath }
+        if (Get-Command Show-UiMessage -ErrorAction SilentlyContinue) {
+            [void](Show-UiMessage -Message "初始化出错：`n`n$msg`n`n详细信息已写入：`n$rootDir\logs\ui-error.log" -Title '磁盘开关' -Kind 'error')
+        }
     } catch { }
     exit 1
 }
@@ -39,11 +43,7 @@ if ((Test-Path $cfgPath) -and -not $Reconfigure) {
     try { $old = Get-Content $cfgPath -Raw -Encoding UTF8 | ConvertFrom-Json } catch { }
     if ($old) {
         $names = (@($old.disks) | ForEach-Object { $_.name }) -join '、'
-        $ans = [System.Windows.Forms.MessageBox]::Show(
-            "检测到已有配置：$names`n`n是沿用这组，还是重新选择磁盘？",
-            '磁盘开关 · 初始化',
-            [System.Windows.Forms.MessageBoxButtons]::YesNoCancel,
-            [System.Windows.Forms.MessageBoxIcon]::Question)
+        $ans = Show-UiConfirm -Message ("检测到已有配置：$names`n`n是沿用这组，还是重新选择磁盘？") -Title '磁盘开关 · 初始化' -Buttons 'YesNoCancel'
         if ($ans -eq 'Cancel') { exit 0 }
         if ($ans -eq 'Yes') {
             if (-not $NoInstall) {
@@ -82,6 +82,13 @@ for ($i = 0; $i -lt $all.Count; $i++) {
 
 $picked = @(Show-DiskPicker -Rows $rows)
 if ($picked.Count -eq 0) { exit 0 }
+
+# 防呆：编号必须落在有效范围内（自绘窗口正常不会给出越界值，但别让坏数据进配置）
+$picked = @($picked | Where-Object { $_ -ge 1 -and $_ -le $rows.Count } | Select-Object -Unique)
+if ($picked.Count -eq 0) {
+    [void](Show-UiMessage -Message '没有选中有效的磁盘，配置未修改。' -Kind 'error')
+    exit 1
+}
 
 # ---- 写配置 ----
 $diskCfg = @()

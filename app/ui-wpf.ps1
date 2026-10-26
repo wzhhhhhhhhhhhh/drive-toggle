@@ -248,6 +248,23 @@ function Show-DiskPicker {
     return $picked
 }
 
+# ---------------------------------------------------------------- 确认框
+# 返回 'Yes' / 'No' / 'Cancel'
+function Show-UiConfirm {
+    param(
+        [string]$Message,
+        [string]$Title = '磁盘开关',
+        [string]$Buttons = 'YesNoCancel'
+    )
+    Initialize-Wpf
+    $btn = switch ($Buttons) {
+        'YesNo'       { [System.Windows.MessageBoxButton]::YesNo }
+        'OkCancel'    { [System.Windows.MessageBoxButton]::OKCancel }
+        default       { [System.Windows.MessageBoxButton]::YesNoCancel }
+    }
+    $r = [System.Windows.MessageBox]::Show($Message, $Title, $btn, [System.Windows.MessageBoxImage]::Question)
+    return [string]$r
+}
 # ---------------------------------------------------------------- 提示框
 function Show-UiMessage {
     param([string]$Message, [string]$Title = '磁盘开关', [string]$Kind = 'info')
