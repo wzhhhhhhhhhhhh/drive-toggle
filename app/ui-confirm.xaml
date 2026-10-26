@@ -72,10 +72,11 @@
                  FontSize="13" Foreground="#4B5563" TextWrapping="Wrap"
                  Margin="0,14,0,0" VerticalAlignment="Top" LineHeight="22"/>
 
-      <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,18,0,0">
-        <Button x:Name="CancelBtn" Content="取消" Style="{StaticResource GhostButton}" Margin="0,0,10,0" IsCancel="True"/>
+      <!-- 靠左，按推荐顺序：沿用 → 重新选盘 → 取消 -->
+      <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Left" Margin="0,18,0,0">
+        <Button x:Name="MainBtn" Content="沿用现有配置" Style="{StaticResource PrimaryButton}" Margin="0,0,10,0" IsDefault="True"/>
         <Button x:Name="AltBtn" Content="重新选盘" Style="{StaticResource GhostButton}" Margin="0,0,10,0"/>
-        <Button x:Name="MainBtn" Content="沿用现有配置" Style="{StaticResource PrimaryButton}" IsDefault="True"/>
+        <Button x:Name="CancelBtn" Content="取消" Style="{StaticResource GhostButton}" IsCancel="True"/>
       </StackPanel>
     </Grid>
   </Border>
