@@ -357,12 +357,9 @@ try {
         '$global:__stubSetupConfirm = ''__SETUP__''',
         'function Show-SetupConfirm { param($Names, $Title) return $global:__stubSetupConfirm }',
         'function Show-DiskPicker { param($Rows) return $global:__stubPicker }',
-        'function Show-UiConfirm { param($Message, $Title, $Buttons) return $global:__stubConfirm }',
         'function Show-UiMessage { param($Message, $Title, $Kind) }',
-        'function Show-OperationDialog { param($Title, $Direction, $Work, $CorePath, $Targets, $Force, $DryRun, $LogDir, $ActionLabel, $HoldOk, $HoldFail)',
-        '    $r = @()',
-        '    if ($Work) { $r = @(& $Work { param($t, $p) }) }',
-        '    return [pscustomobject]@{ Error = $null; Results = $r }',
+        'function Show-OperationDialog { param($Title, $Direction, $CorePath, $Targets, $Force, $DryRun, $LogDir, $ScriptPath, $ScriptArgs, $ActionLabel, $HoldOk, $HoldFail)',
+        '    return [pscustomobject]@{ Error = $null; Results = @() }',
         '}'
     )
     $stubPath = Join-Path $sbApp 'ui-wpf.ps1'

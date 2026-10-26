@@ -7,24 +7,6 @@ $script:AppDir     = $PSScriptRoot
 $script:Root       = if ((Split-Path $PSScriptRoot -Leaf) -eq 'app') { Split-Path $PSScriptRoot -Parent } else { $PSScriptRoot }
 $script:ConfigPath = Join-Path $script:Root 'config.json'
 
-function Focus-Console {
-    # 把脚本窗口提到最前面。任务计划启动的窗口默认是在后台冒出来的，
-    # 不给它抢焦点的话，你会觉得"点了没反应"，然后过一会儿窗口才闪一下。
-    try {
-        if (-not ('Win32.ConsoleWin' -as [type])) {
-            Add-Type -Namespace Win32 -Name ConsoleWin -MemberDefinition @'
-[DllImport("kernel32.dll")] public static extern IntPtr GetConsoleWindow();
-[DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd);
-[DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
-'@
-        }
-        $h = [Win32.ConsoleWin]::GetConsoleWindow()
-        if ($h -ne [IntPtr]::Zero) {
-            [void][Win32.ConsoleWin]::ShowWindow($h, 9)      # SW_RESTORE
-            [void][Win32.ConsoleWin]::SetForegroundWindow($h)
-        }
-    } catch { }
-}
 
 # ---- 目标磁盘：从 config.json 读取（由 setup.ps1 生成） ----
 $script:Targets    = @()

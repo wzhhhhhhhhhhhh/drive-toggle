@@ -354,23 +354,6 @@ function Show-DiskPicker {
     return $picked
 }
 
-# ---------------------------------------------------------------- 确认框
-# 返回 'Yes' / 'No' / 'Cancel'
-function Show-UiConfirm {
-    param(
-        [string]$Message,
-        [string]$Title = '磁盘开关',
-        [string]$Buttons = 'YesNoCancel'
-    )
-    Initialize-Wpf
-    $btn = switch ($Buttons) {
-        'YesNo'       { [System.Windows.MessageBoxButton]::YesNo }
-        'OkCancel'    { [System.Windows.MessageBoxButton]::OKCancel }
-        default       { [System.Windows.MessageBoxButton]::YesNoCancel }
-    }
-    $r = [System.Windows.MessageBox]::Show($Message, $Title, $btn, [System.Windows.MessageBoxImage]::Question)
-    return [string]$r
-}
 # ---------------------------------------------------------------- 初始化确认窗
 # 语义化的三选一：沿用现有配置 / 重新选盘 / 取消
 # 返回 'reuse' / 'reselect' / 'cancel'
@@ -444,12 +427,10 @@ function Wait-UiWorker {
 # 三种用法：
 #   1) -CorePath -Targets -Direction  → 后台跑磁盘操作
 #   2) -ScriptPath                    → 后台跑某个脚本（初始化用 install.ps1）
-#   3) -Work <scriptblock>            → 同步执行（极短流程）
 function Show-OperationDialog {
     param(
         [string]$Title,
         [string]$Direction,          # mount / unmount / setup
-        [scriptblock]$Work,
         [string]$CorePath,
         $Targets,
         [switch]$Force,
@@ -548,17 +529,7 @@ function Show-OperationDialog {
             $results = @($sync.Results)
         }
         else {
-            # ---- 同步执行（极短流程） ----
-            $cb = {
-                param($text, $pct = $null)
-                $c = $global:__dsOpCtx
-                if ($text) { $c.lblStatus.Text = $text }
-                if ($null -ne $pct) { $c.st.hasPct = $true; $c.st.target = [double]$pct }
-                & $c.render $c
-                Invoke-UiPump
-            }.GetNewClosure()
-            $global:__dsOpCtx = $ctx
-            $results = @(& $Work $cb)
+            throw 'Show-OperationDialog 需要 -ScriptPath 或 -CorePath/-Targets'
         }
     } catch {
         $err = $_.Exception.Message
