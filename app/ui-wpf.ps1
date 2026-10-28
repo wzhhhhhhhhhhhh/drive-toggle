@@ -439,6 +439,87 @@ function Wait-UiWorker {
 # 三种用法：
 #   1) -CorePath -Targets -Direction  → 后台跑磁盘操作
 #   2) -ScriptPath                    → 后台跑某个脚本（初始化用 install.ps1）
+function Set-WakeListContent {
+    # 把唤醒明细铺进一个 StackPanel：每块盘一组（标题 + 两行对齐的数据），组间一条细线。
+    # 抽成独立函数是为了能用假数据打桩测试（盘多时是否出现滚动、量取高度是否合理）。
+    param($List, $Items)
+
+    if (-not $List) { return }
+
+    $brushGrey  = New-Object System.Windows.Media.SolidColorBrush ([System.Windows.Media.ColorConverter]::ConvertFromString('#848D9E'))
+    $brushDark  = New-Object System.Windows.Media.SolidColorBrush ([System.Windows.Media.ColorConverter]::ConvertFromString('#171C26'))
+    $brushGreen = New-Object System.Windows.Media.SolidColorBrush ([System.Windows.Media.ColorConverter]::ConvertFromString('#109B5E'))
+    $brushLine  = New-Object System.Windows.Media.SolidColorBrush ([System.Windows.Media.ColorConverter]::ConvertFromString('#E5EAF1'))
+
+    $cAuto = [System.Windows.GridLength]::Auto
+    $c18   = New-Object System.Windows.GridLength 18
+    $cStar = New-Object System.Windows.GridLength 1, ([System.Windows.GridUnitType]::Star)
+
+    $n = 0
+    foreach ($w in @($Items)) {
+        $span = if ($w.OfflineText) { $w.OfflineText } else { ('{0} 分钟' -f $w.OfflineMinutes) }
+
+        if ($n -gt 0) {
+            $sep = New-Object System.Windows.Controls.Border
+            $sep.Height = 1
+            $sep.Background = $brushLine
+            $sep.Margin = New-Object System.Windows.Thickness 0,12,0,12
+            [void]$List.Children.Add($sep)
+        }
+
+        $blkTitle = New-Object System.Windows.Controls.TextBlock
+        $blkTitle.Text = ('{0} · 脱机 {1}' -f $w.Label, $span)
+        $blkTitle.FontSize = 13
+        $blkTitle.FontWeight = 'SemiBold'
+        $blkTitle.Foreground = $brushDark
+        $blkTitle.Margin = New-Object System.Windows.Thickness 0,0,0,8
+        [void]$List.Children.Add($blkTitle)
+
+        $g = New-Object System.Windows.Controls.Grid
+        foreach ($cw in @($cAuto, $c18, $cAuto, $cStar, $cAuto)) {
+            $cd = New-Object System.Windows.Controls.ColumnDefinition
+            $cd.Width = $cw
+            [void]$g.ColumnDefinitions.Add($cd)
+        }
+        for ($k = 0; $k -lt 2; $k++) {
+            $rd = New-Object System.Windows.Controls.RowDefinition
+            [void]$g.RowDefinitions.Add($rd)
+        }
+
+        $cells = @(
+            @('启停次数', ('{0:N0} → {1:N0}' -f $w.PrevStartStop, $w.CurStartStop), ('+{0}' -f $w.StartStopDelta)),
+            @('磁头加载', ('{0:N0} → {1:N0}' -f $w.PrevLoad, $w.CurLoad),     ('+{0}' -f $w.LoadDelta))
+        )
+
+        $row = 0
+        foreach ($c in $cells) {
+            $lab = New-Object System.Windows.Controls.TextBlock
+            $lab.Text = $c[0]; $lab.FontSize = 12; $lab.Foreground = $brushGrey
+            $lab.HorizontalAlignment = 'Right'
+            $lab.Margin = New-Object System.Windows.Thickness 0,0,0,$(if ($row -eq 0) { 7 } else { 0 })
+            [System.Windows.Controls.Grid]::SetRow($lab, $row); [System.Windows.Controls.Grid]::SetColumn($lab, 0)
+            [void]$g.Children.Add($lab)
+
+            $val = New-Object System.Windows.Controls.TextBlock
+            $val.Text = $c[1]; $val.FontSize = 12; $val.Foreground = $brushDark
+            $val.Margin = New-Object System.Windows.Thickness 0,0,0,$(if ($row -eq 0) { 7 } else { 0 })
+            [System.Windows.Controls.Grid]::SetRow($val, $row); [System.Windows.Controls.Grid]::SetColumn($val, 2)
+            [void]$g.Children.Add($val)
+
+            $del = New-Object System.Windows.Controls.TextBlock
+            $del.Text = $c[2]; $del.FontSize = 12; $del.FontWeight = 'SemiBold'; $del.Foreground = $brushGreen
+            $del.Margin = New-Object System.Windows.Thickness 12,0,0,$(if ($row -eq 0) { 7 } else { 0 })
+            [System.Windows.Controls.Grid]::SetRow($del, $row); [System.Windows.Controls.Grid]::SetColumn($del, 4)
+            [void]$g.Children.Add($del)
+
+            $row++
+        }
+
+        [void]$List.Children.Add($g)
+        $n++
+    }
+}
+
 function Show-OperationDialog {
     param(
         [string]$Title,
@@ -476,6 +557,9 @@ function Show-OperationDialog {
         track     = $win.FindName('TrackGrid')
         lblFoot   = $win.FindName('FootText')
         ack       = $win.FindName('AckButton')
+        wakePanel = $win.FindName('WakePanel')
+        wakeList  = $win.FindName('WakeList')
+        wakeScroll= $win.FindName('WakeScroll')
         st        = @{ barW = 0.0; shown = 0.0; target = 0.0; hasPct = $false }
     }
 
@@ -572,33 +656,42 @@ function Show-OperationDialog {
             $ctx.lblFoot.Text = (@($results | ForEach-Object { '{0}  {1}' -f $_.磁盘, $_.结果 }) -join '        ')
         }
 
-        # 脱机期间检测到唤醒：写进结果区，并要求点「知道了」才关窗
+        # 脱机期间检测到唤醒：逐块盘列出（盘多时可滚动），并要求点「知道了」才关窗
         if ($sync -and $sync.Wake) { $wake = @($sync.Wake) }
         if ($wake.Count -gt 0) {
-            $msg = @()
-            foreach ($w in $wake) {
-                $span = if ($w.OfflineText) { $w.OfflineText } else { ('{0} 分钟' -f $w.OfflineMinutes) }
-                $msg += ("{0}：脱机 {1}，期间疑似被唤醒" -f $w.Label, $span)
-                $msg += ("    启停 {0:N0} → {1:N0}（+{2}）· 磁头加载 +{3}" -f `
-                         $w.PrevStartStop, $w.CurStartStop, $w.StartStopDelta, $w.LoadDelta)
-            }
-            $msg += '明细见 logs\wakeups.csv'
-            $ctx.lblFoot.Text = ($msg -join "`n")
+            $ctx.lblFoot.Visibility = 'Collapsed'
+            $ctx.wakePanel.Visibility = 'Visible'
             $ctx.ack.Visibility = 'Visible'
-            $win.Height = 276
+
+            [void](Set-WakeListContent -List $ctx.wakeList -Items $wake)
+
+            # 窗口高度跟着内容长，但不超过屏幕；盘多时由 ScrollViewer 接管
+            $win.SizeToContent = 'Height'
         }
     }
 
     Invoke-UiPump
 
     if ($wake.Count -gt 0 -and -not $err) {
-        # 必须点「知道了」才关窗（最多等 10 分钟，防止无人值守时卡死）
-        $global:__dsAckDone = $false
-        $ctx.ack.Add_Click({ $global:__dsAckDone = $true }.GetNewClosure())
-        $until = (Get-Date).AddMinutes(10)
-        while (-not $global:__dsAckDone -and $win.IsVisible -and (Get-Date) -lt $until) {
-            Invoke-UiPump
-            Start-Sleep -Milliseconds 30
+        # 自动化（测试/无人值守）时：logs\.no-ack 存在就不等人点，短暂停留后自动关
+        $autoAck = $false
+        try { if ($LogDir -and (Test-Path (Join-Path $LogDir '.no-ack'))) { $autoAck = $true } } catch { }
+
+        if ($autoAck) {
+            $until = (Get-Date).AddSeconds($HoldOk)
+            while ((Get-Date) -lt $until -and $win.IsVisible) {
+                Invoke-UiPump
+                Start-Sleep -Milliseconds 30
+            }
+        } else {
+            # 必须点「知道了」才关窗（最多等 10 分钟，防止无人值守时卡死）
+            $global:__dsAckDone = $false
+            $ctx.ack.Add_Click({ $global:__dsAckDone = $true }.GetNewClosure())
+            $until = (Get-Date).AddMinutes(10)
+            while (-not $global:__dsAckDone -and $win.IsVisible -and (Get-Date) -lt $until) {
+                Invoke-UiPump
+                Start-Sleep -Milliseconds 30
+            }
         }
     } else {
         $until = (Get-Date).AddSeconds($(if ($err) { $HoldFail } else { $HoldOk }))

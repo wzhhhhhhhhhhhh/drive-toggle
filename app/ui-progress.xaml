@@ -21,6 +21,7 @@
         <RowDefinition Height="Auto"/>
         <RowDefinition Height="*"/>
         <RowDefinition Height="Auto"/>
+        <RowDefinition Height="Auto"/>
       </Grid.RowDefinitions>
 
       <!-- 标题行：状态点 + 大标题 + 右侧百分比 -->
@@ -57,9 +58,23 @@
                  FontSize="11.5" Foreground="#848D9E" Margin="22,14,0,0"
                  TextWrapping="Wrap" VerticalAlignment="Top"/>
 
+      <!-- 唤醒明细（脱机期间盘被唤醒过时才显示；盘多时可滚动） -->
+      <StackPanel x:Name="WakePanel" Grid.Row="4" Margin="22,16,0,0" Visibility="Collapsed">
+        <ScrollViewer x:Name="WakeScroll" MaxHeight="252"
+                      VerticalScrollBarVisibility="Auto"
+                      HorizontalScrollBarVisibility="Disabled">
+          <StackPanel x:Name="WakeList" Margin="0,0,10,0"/>
+        </ScrollViewer>
+        <TextBlock x:Name="WakeNote" Margin="0,12,0,0" FontSize="11.5" Foreground="#4B5563"
+                   TextWrapping="Wrap"
+                   Text="盘在脱机期间被唤醒过，通常来自磁盘工具或系统自检。"/>
+        <TextBlock x:Name="WakeLog" Margin="0,6,0,0" FontSize="10.5" Foreground="#A0A8B5"
+                   Text="明细见 logs\wakeups.csv"/>
+      </StackPanel>
+
       <!-- 需要用户确认时才显示（例如脱机期间检测到唤醒） -->
-      <Button x:Name="AckButton" Grid.Row="4" Content="知道了"
-              HorizontalAlignment="Right" Margin="0,12,4,0" Height="34" MinWidth="96"
+      <Button x:Name="AckButton" Grid.Row="5" Content="知道了"
+              HorizontalAlignment="Right" Margin="0,14,4,0" Height="34" MinWidth="96"
               FontSize="12" Foreground="White" BorderThickness="0" Cursor="Hand"
               Visibility="Collapsed">
         <Button.Template>

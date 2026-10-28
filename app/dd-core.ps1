@@ -166,6 +166,8 @@ function Compare-DiskSnapshot {
         HoursDelta     = $dHours
         PrevStartStop  = [int]$Prev.startStop
         CurStartStop   = [int]$Cur.StartStop
+        PrevLoad       = [int]$Prev.loadUnload
+        CurLoad        = [int]$Cur.LoadUnload
     }
 }
 
@@ -233,6 +235,8 @@ function Get-OfflineWakeups {
             PrevStartStop   = $cmp.PrevStartStop
             CurStartStop    = $cmp.CurStartStop
             LoadDelta       = $cmp.LoadDelta
+            PrevLoad        = $cmp.PrevLoad
+            CurLoad         = $cmp.CurLoad
         }
     }
     return $found

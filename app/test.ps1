@@ -438,6 +438,51 @@ $hasAll = $toggleSrc -match '\$allTargets\s*=\s*@\(\$Targets\)'
 $hasOp  = $toggleSrc -match '\$opTargets\s*=\s*@\(\$Targets\)'
 if ($hasAll -and $hasOp) { T-Ok 'D8' '总开关模式的目标列表已正确初始化' }
 else { T-Fail 'D8' 'toggle-all 的 $opTargets 初始化可能缺失（总开关会点不动）' "allTargets=$hasAll opTargets=$hasOp" }
+
+# D9：函数里不许给「带类型的参数」重新赋值
+# （曾经在 Show-OperationDialog 里写 $title = New-Object TextBlock，而参数是 [string]$Title，
+#   大小写不敏感 → 赋值被转成字符串 → $title.Text 报"找不到属性 Text"）
+$shadowHits = @()
+foreach ($file in (Get-ChildItem $appDir -Filter '*.ps1')) {
+    $tok = $null; $perr = $null
+    $ast = [System.Management.Automation.Language.Parser]::ParseFile($file.FullName, [ref]$tok, [ref]$perr)
+    if ($perr -and $perr.Count -gt 0) { continue }
+    $funcs = $ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] }, $true)
+    foreach ($f in $funcs) {
+        if (-not $f.Body.ParamBlock) { continue }
+        $typed = @{}
+        foreach ($pm in $f.Body.ParamBlock.Parameters) {
+            if ($pm.StaticType -and $pm.StaticType.FullName -ne 'System.Object') {
+                $typed[$pm.Name.VariablePath.UserPath.ToLower()] = $pm.StaticType.Name
+            }
+        }
+        if ($typed.Count -eq 0) { continue }
+        $assigns = $f.Body.FindAll({ param($n) $n -is [System.Management.Automation.Language.AssignmentStatementAst] }, $true)
+        foreach ($a in $assigns) {
+            $lhs = $a.Left
+            if ($lhs -isnot [System.Management.Automation.Language.VariableExpressionAst]) { continue }
+            $nm = $lhs.VariablePath.UserPath.ToLower()
+            if ($typed.ContainsKey($nm)) {
+                $shadowHits += "$($file.Name)：$($f.Name) 里的 `$$($lhs.VariablePath.UserPath) 是 [$($typed[$nm])] 参数"
+            }
+        }
+    }
+}
+if ($shadowHits.Count -eq 0) { T-Ok 'D9' '没有给带类型的参数重新赋值' }
+else { T-Fail 'D9' '函数内给带类型的参数重新赋了值（会静默改变类型）' (($shadowHits | Select-Object -First 3) -join ' | ') }
+
+# U0：打桩 UI 测试（用假数据验证唤醒面板，不碰真实磁盘）
+Write-Host ''
+Write-Host '12) 唤醒面板打桩' -ForegroundColor White
+$stub = Join-Path $appDir 'test-ui-stub.ps1'
+if (Test-Path $stub) {
+    $out = & powershell -NoProfile -ExecutionPolicy Bypass -File $stub -Count 6 2>&1
+    if ($LASTEXITCODE -eq 0) { T-Ok 'U0' '打桩 UI 测试通过（6 块盘，滚动/上限/分组）' }
+    else { T-Fail 'U0' '打桩 UI 测试失败' (($out | Select-String 'FAIL' | ForEach-Object { $_.Line.Trim() }) -join ' | ') }
+} else {
+    T-Fail 'U0' '缺少 app\test-ui-stub.ps1' '打桩测试脚本不见了'
+}
+
 # ---------- 汇总 ----------
 Write-Host ''
 Write-Host '=== 结果 ===' -ForegroundColor Cyan
