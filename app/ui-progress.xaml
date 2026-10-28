@@ -117,8 +117,21 @@
         <TextBlock x:Name="WakeNote" Margin="0,12,0,0" FontSize="11.5" Foreground="#4B5563"
                    TextWrapping="Wrap"
                    Text="盘在脱机期间被唤醒过，通常来自磁盘工具或系统自检。"/>
-        <TextBlock x:Name="WakeLog" Margin="0,6,0,0" FontSize="10.5" Foreground="#A0A8B5"
-                   Text="明细见 logs\wakeups.csv"/>
+        <Button x:Name="WakeLog" Margin="0,6,0,0" HorizontalAlignment="Left" Cursor="Hand"
+                Background="Transparent" BorderThickness="0" Padding="0" FontSize="10.5"
+                ToolTip="点击打开日志所在文件夹">
+          <Button.Template>
+            <ControlTemplate TargetType="Button">
+              <TextBlock x:Name="tx" Text="明细见 logs\wakeups.csv" Foreground="#A0A8B5"/>
+              <ControlTemplate.Triggers>
+                <Trigger Property="IsMouseOver" Value="True">
+                  <Setter TargetName="tx" Property="Foreground" Value="#109B5E"/>
+                  <Setter TargetName="tx" Property="TextDecorations" Value="Underline"/>
+                </Trigger>
+              </ControlTemplate.Triggers>
+            </ControlTemplate>
+          </Button.Template>
+        </Button>
       </StackPanel>
 
       <!-- 需要用户确认时才显示（例如脱机期间检测到唤醒） -->

@@ -560,6 +560,7 @@ function Show-OperationDialog {
         wakePanel = $win.FindName('WakePanel')
         wakeList  = $win.FindName('WakeList')
         wakeScroll= $win.FindName('WakeScroll')
+        wakeLog   = $win.FindName('WakeLog')
         st        = @{ barW = 0.0; shown = 0.0; target = 0.0; hasPct = $false }
     }
 
@@ -664,6 +665,18 @@ function Show-OperationDialog {
             $ctx.ack.Visibility = 'Visible'
 
             [void](Set-WakeListContent -List $ctx.wakeList -Items $wake)
+
+            # 「明细见 logs\wakeups.csv」点一下就打开所在文件夹并选中该文件
+            if ($ctx.wakeLog) {
+                $logDirForClick = $LogDir
+                $ctx.wakeLog.Add_Click({
+                    try {
+                        $csv = Join-Path $logDirForClick 'wakeups.csv'
+                        if (Test-Path $csv) { Start-Process explorer.exe -ArgumentList ('/select,"' + $csv + '"') }
+                        elseif ($logDirForClick -and (Test-Path $logDirForClick)) { Start-Process explorer.exe -ArgumentList $logDirForClick }
+                    } catch { }
+                }.GetNewClosure())
+            }
 
             # 窗口高度跟着内容长，但不超过屏幕；盘多时由 ScrollViewer 接管
             $win.SizeToContent = 'Height'

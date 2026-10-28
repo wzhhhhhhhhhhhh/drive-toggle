@@ -39,6 +39,7 @@ function New-Panel([int]$n) {
     $list  = $win.FindName('WakeList')
     $scroll= $win.FindName('WakeScroll')
     $ack   = $win.FindName('AckButton')
+    $logEl = $win.FindName('WakeLog')
 
     # 名字解析完再摘掉内容，Window 不 Show 也能单独布局
     $root = $win.Content
@@ -53,7 +54,7 @@ function New-Panel([int]$n) {
     $root.UpdateLayout()
 
     return [pscustomobject]@{
-        Root = $root; Panel = $panel; List = $list; Scroll = $scroll; Ack = $ack
+        Root = $root; Panel = $panel; List = $list; Scroll = $scroll; Ack = $ack; Log = $logEl
         ListH = [math]::Round($list.ActualHeight)
         PanelH = [math]::Round($panel.ActualHeight)
         MaxH = [math]::Round($scroll.MaxHeight)
@@ -107,6 +108,11 @@ $vbar = $bars | Where-Object { $_.Orientation -eq 'Vertical' } | Select-Object -
 if ($vbar -and $vbar.Width -eq 8 -and $vbar.Style -ne $null) { Ok 'U8' "纵向滚动条用了自定义细样式（宽 $($vbar.Width)）" }
 elseif ($vbar) { No 'U8' '滚动条没有用上自定义样式' "宽 $($vbar.Width)，HasStyle=$($vbar.Style -ne $null)" }
 else { No 'U8' '没找到纵向滚动条' '内容没超出？' }
+
+# ---------- 日志链接：必须是可点击的按钮 ----------
+$linkEl = $p6.Log
+if ($linkEl -is [System.Windows.Controls.Button]) { Ok 'U9' '「明细见 …」是可点击按钮' }
+else { No 'U9' '「明细见 …」不是按钮，点不了' "类型 $($linkEl.GetType().Name)" }
 
 # ---------- 渲染一张图 ----------
 if ($Png) {
