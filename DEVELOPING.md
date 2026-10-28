@@ -140,6 +140,21 @@ SMART 读不到、计数没变 —— 都不告警。
 **局限**：启停次数增加不等于"被读了 N 次"。盘按电源策略自己停转再被唤醒，
 计数同样会 +1。所以文案一律写"疑似"，并把三个数一起记下来让人自己判断。
 
+## 4.8 界面改动的验收方式
+
+界面改完不能只跑断言，按三步：
+
+1. `app\test.ps1` —— 含 U0 打桩，确认结构没坏
+2. `app\test-ui-stub.ps1 -Count 6 -Png 图.png` —— 出一张静态图
+3. `app\demo-wake.ps1 -Count 6` —— 弹真窗，自己点一遍
+
+第 3 步不能省：断言查不出"字被遮住、颜色不对、按钮点不动"。
+**给用户演示界面时优先弹窗**，让用户自己操作，比截图可靠。
+
+相关代码：`ui-progress.xaml`（外观）、`ui-wpf.ps1`（`Show-OperationDialog` /
+`Set-WakeListContent` / `Set-WakeLogLink`）、`test-ui-stub.ps1`（打桩）、
+`demo-wake.ps1`（演示入口）。
+
 ## 5. 维护操作
 
 | 想做什么 | 怎么做 |

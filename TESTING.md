@@ -89,7 +89,8 @@
 | `app\test.ps1` 自身、`TESTING.md` | D1–D5 | —— |
 | `README.md`（用户向）、`DEVELOPING.md`（维护向）、`LICENSE`（MIT） | F1（必需文件） | M36 |
 | `app\test-logic.ps1` 内存假盘逻辑测试 | **L9**（内部 67 条） | 替代 M8/M9/M12–M19 的逻辑部分 |
-| `app\test-ui-stub.ps1` 唤醒面板打桩（假数据，不碰磁盘） | **U0**（内部 U1–U7） | 盘多的布局、滚动、高度上限 |
+| `app\test-ui-stub.ps1` 唤醒面板打桩（假数据，不碰磁盘） | **U0**（内部 U1–U9） | 盘多的布局、滚动、高度上限、链接可点 |
+| `app\demo-wake.ps1` 弹演示窗给人看（假数据） | 手动 | 改完界面想亲眼看效果时 |
 | 唤醒哨兵（`Get-OfflineWakeups` / `Compare-DiskSnapshot` / `Save-DiskState`） | **W1–W9**、L9 | M44 |
 | `logs\wakeups.csv` 事件表 | W1 | M44 |
 | 	est-logic.ps1 内存假盘逻辑测试 | **L9**（内部 43 条） | 替代 M8/M9/M12–M19 的逻辑部分 |
@@ -199,6 +200,26 @@ un-e2e.ps1 真实端到端（可选） | —— | M8/M9/M12–M19 的真机验�
 | U7 | 12 块盘时面板仍被限制 |
 | U8 | 纵向滚动条用自定义细样式（3px 滑块 / 8px 命中区） |
 | U9 | 「明细见 …」是按钮，可点击（不是纯文字） |
+
+### 界面类功能怎么测（通用套路）
+
+改任何界面之后，按这三步走，不要只跑断言：
+
+1. **跑断言**：`powershell -File app\test.ps1`（含 U0）确认结构没坏
+2. **看静态图**：`powershell -File app\test-ui-stub.ps1 -Count 6 -Png 图.png`
+3. **亲眼看**：`powershell -File app\demo-wake.ps1 -Count 6` 弹真窗
+
+第 3 步最容易被跳过，但只有它能发现"字虚了、颜色不对、点不动"这类问题。
+**给用户演示界面时，优先弹窗，不要只发图片** —— 用户能自己点、自己滚，比看图准确。
+
+现有弹窗相关代码的位置：
+
+| 文件 | 内容 |
+|---|---|
+| `app\ui-progress.xaml` | 进度/唤醒窗的外观（卡片、滚动区、细滚动条、按钮） |
+| `app\ui-wpf.ps1` | `Show-OperationDialog` 主流程、`Set-WakeListContent` 造行、`Set-WakeLogLink` 链接、`Invoke-UiPump` 消息泵 |
+| `app\test-ui-stub.ps1` | 打桩：假数据造面板、离屏测量、断言、`-Png` 出图、`-Show` 弹窗 |
+| `app\demo-wake.ps1` | 好记的入口，等价于 `test-ui-stub.ps1 -Show` |
 
 三种用法：
 
@@ -378,6 +399,7 @@ un-e2e.ps1（可选，2~3 分钟） | 跑完在 §7 记一行 |
 | 2026-10-27 | 进度窗改用 PushFrame 嵌套消息循环 + 状态哈希表传参，修「定时器回调里 `$st` 被同名变量顶掉」 | M30b 覆盖拖动 |
 | 2026-10-29 | 修误报：读 SMART 本身会唤醒停转的盘（+1 次），导致每次挂载都提示。判定阈值改为增量 ≥2 | 新增 W10 |
 | 2026-10-29 | 唤醒提示的脱机时长改用「分钟/小时」自适应（原来 17 分钟会显示成 0.3h） | M44 文案 |
+| 2026-10-29 | 新增 app\demo-wake.ps1（弹演示窗的固定入口）；TESTING 补「界面类功能怎么测」三步法 | D1 清单、U0 |
 | 2026-10-29 | 打桩脚本加 -Show：用假数据弹出演示窗（之前是临时脚本，不入库）；TESTING 补三种用法 | U0 覆盖 |
 | 2026-10-29 | 把链接点击处理抽成 Set-WakeLogLink，对话框和演示脚本共用；补了程序化点击验证 | U9 |
 | 2026-10-29 | 「明细见 logs\wakeups.csv」改成按钮：点击打开 logs 文件夹并选中该文件；悬浮变绿+下划线 | 新增 U9 |
