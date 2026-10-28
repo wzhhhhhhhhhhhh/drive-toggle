@@ -1,6 +1,6 @@
 ﻿# 打桩测试：用假数据验证唤醒面板（不碰真实磁盘）
 # 用法：powershell -File test-ui-stub.ps1 [-Count 6] [-Png 输出路径]
-param([int]$Count = 6, [string]$Png = '')
+param([int]$Count = 6, [string]$Png = '', [switch]$Show)
 
 $ErrorActionPreference = 'Continue'
 $appDir = $PSScriptRoot
@@ -113,6 +113,50 @@ else { No 'U8' '没找到纵向滚动条' '内容没超出？' }
 $linkEl = $p6.Log
 if ($linkEl -is [System.Windows.Controls.Button]) { Ok 'U9' '「明细见 …」是可点击按钮' }
 else { No 'U9' '「明细见 …」不是按钮，点不了' "类型 $($linkEl.GetType().Name)" }
+
+# ---------- -Show：真的弹一个窗出来给人试 ----------
+if ($Show) {
+    $win   = Load-UiWindow $script:UiProgressXaml
+    $win.Title = '硬盘开关 · 演示'
+    $win.WindowStartupLocation = 'CenterScreen'
+
+    $titleEl = $win.FindName('TitleText')
+    $pctEl   = $win.FindName('PercentText')
+    $stEl    = $win.FindName('StatusText')
+    $fillEl  = $win.FindName('ProgressFill')
+    $panelEl = $win.FindName('WakePanel')
+    $listEl  = $win.FindName('WakeList')
+    $ackEl   = $win.FindName('AckButton')
+    $footEl  = $win.FindName('FootText')
+
+    $titleEl.Text = '已挂载'
+    $pctEl.Text = '100%'
+    $stEl.Text = ''
+    $fillEl.Width = 380
+    $footEl.Visibility = 'Collapsed'
+    $panelEl.Visibility = 'Visible'
+    $ackEl.Visibility = 'Visible'
+
+    [void](Set-WakeListContent -List $listEl -Items (New-FakeWake $Count))
+
+    $logDir = Join-Path (Split-Path $appDir -Parent) 'logs'
+    [void](Set-WakeLogLink -Button $win.FindName('WakeLog') -LogDir $logDir)
+
+    $win.SizeToContent = 'Height'
+
+    $script:stubClosed = $false
+    $ackEl.Add_Click({ $script:stubClosed = $true; try { $win.Close() } catch { } }.GetNewClosure())
+
+    $win.Show()
+    $until = (Get-Date).AddMinutes(10)
+    while (-not $script:stubClosed -and $win.IsVisible -and (Get-Date) -lt $until) {
+        Invoke-UiPump
+        Start-Sleep -Milliseconds 30
+    }
+    try { if ($win.IsVisible) { $win.Close() } } catch { }
+    Write-Host '演示窗已关闭' -ForegroundColor Gray
+    exit 0
+}
 
 # ---------- 渲染一张图 ----------
 if ($Png) {
