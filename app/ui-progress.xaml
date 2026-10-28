@@ -60,9 +60,56 @@
 
       <!-- 唤醒明细（脱机期间盘被唤醒过时才显示；盘多时可滚动） -->
       <StackPanel x:Name="WakePanel" Grid.Row="4" Margin="22,16,0,0" Visibility="Collapsed">
-        <ScrollViewer x:Name="WakeScroll" MaxHeight="252"
+        
+        
+<ScrollViewer x:Name="WakeScroll" MaxHeight="252"
                       VerticalScrollBarVisibility="Auto"
                       HorizontalScrollBarVisibility="Disabled">
+        <ScrollViewer.Resources>
+    <!-- 细滚动条：3px 圆角滑块，无轨道无箭头；8px 命中区域方便抓 -->
+    <Style TargetType="ScrollBar">
+      <Setter Property="Width" Value="8"/>
+      <Setter Property="Background" Value="Transparent"/>
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="ScrollBar">
+            <Grid Background="Transparent">
+              <Track x:Name="PART_Track" IsDirectionReversed="True">
+                <Track.DecreaseRepeatButton>
+                  <RepeatButton Command="ScrollBar.PageUpCommand" Opacity="0" Focusable="False"/>
+                </Track.DecreaseRepeatButton>
+                <Track.Thumb>
+                  <Thumb>
+                    <Thumb.Template>
+                      <ControlTemplate TargetType="Thumb">
+                        <Grid Background="Transparent">
+                          <Border x:Name="Bar" Width="3" CornerRadius="1.5"
+                                  Background="#CBD3DF" HorizontalAlignment="Center"/>
+                        </Grid>
+                        <ControlTemplate.Triggers>
+                          <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="Bar" Property="Width" Value="5"/>
+                            <Setter TargetName="Bar" Property="Background" Value="#AEB8C7"/>
+                          </Trigger>
+                          <Trigger Property="IsDragging" Value="True">
+                            <Setter TargetName="Bar" Property="Width" Value="5"/>
+                            <Setter TargetName="Bar" Property="Background" Value="#8E99A9"/>
+                          </Trigger>
+                        </ControlTemplate.Triggers>
+                      </ControlTemplate>
+                    </Thumb.Template>
+                  </Thumb>
+                </Track.Thumb>
+                <Track.IncreaseRepeatButton>
+                  <RepeatButton Command="ScrollBar.PageDownCommand" Opacity="0" Focusable="False"/>
+                </Track.IncreaseRepeatButton>
+              </Track>
+            </Grid>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
+          </ScrollViewer.Resources>
           <StackPanel x:Name="WakeList" Margin="0,0,10,0"/>
         </ScrollViewer>
         <TextBlock x:Name="WakeNote" Margin="0,12,0,0" FontSize="11.5" Foreground="#4B5563"

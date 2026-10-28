@@ -94,6 +94,20 @@ $p12 = New-Panel 12
 if ($p12.PanelH -le ($p12.MaxH + 140)) { Ok 'U7' "12 块盘时面板高 $($p12.PanelH) 仍被限制" }
 else { No 'U7' '12 块盘时面板过高' "实际 $($p12.PanelH)" }
 
+# ---------- 滚动条样式：必须是细条（3px 滑块 / 8px 命中区） ----------
+$bars = New-Object System.Collections.ArrayList
+function Walk-Tree($el) {
+    if ($null -eq $el) { return }
+    if ($el -is [System.Windows.Controls.Primitives.ScrollBar]) { [void]$bars.Add($el) }
+    $n = [System.Windows.Media.VisualTreeHelper]::GetChildrenCount($el)
+    for ($i = 0; $i -lt $n; $i++) { Walk-Tree ([System.Windows.Media.VisualTreeHelper]::GetChild($el, $i)) }
+}
+Walk-Tree $p6.Root
+$vbar = $bars | Where-Object { $_.Orientation -eq 'Vertical' } | Select-Object -First 1
+if ($vbar -and $vbar.Width -eq 8 -and $vbar.Style -ne $null) { Ok 'U8' "纵向滚动条用了自定义细样式（宽 $($vbar.Width)）" }
+elseif ($vbar) { No 'U8' '滚动条没有用上自定义样式' "宽 $($vbar.Width)，HasStyle=$($vbar.Style -ne $null)" }
+else { No 'U8' '没找到纵向滚动条' '内容没超出？' }
+
 # ---------- 渲染一张图 ----------
 if ($Png) {
     $h = [int]([math]::Min($p6.PanelH + 150, 620))
