@@ -20,6 +20,7 @@
         <RowDefinition Height="Auto"/>
         <RowDefinition Height="Auto"/>
         <RowDefinition Height="*"/>
+        <RowDefinition Height="Auto"/>
       </Grid.RowDefinitions>
 
       <!-- 标题行：状态点 + 大标题 + 右侧百分比 -->
@@ -55,6 +56,25 @@
       <TextBlock x:Name="FootText" Grid.Row="3" Text=""
                  FontSize="11.5" Foreground="#848D9E" Margin="22,14,0,0"
                  TextWrapping="Wrap" VerticalAlignment="Top"/>
+
+      <!-- 需要用户确认时才显示（例如脱机期间检测到唤醒） -->
+      <Button x:Name="AckButton" Grid.Row="4" Content="知道了"
+              HorizontalAlignment="Right" Margin="0,12,4,0" Height="34" MinWidth="96"
+              FontSize="12" Foreground="White" BorderThickness="0" Cursor="Hand"
+              Visibility="Collapsed">
+        <Button.Template>
+          <ControlTemplate TargetType="Button">
+            <Border x:Name="bd" CornerRadius="8" Background="#109B5E" Padding="20,0">
+              <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+            </Border>
+            <ControlTemplate.Triggers>
+              <Trigger Property="IsMouseOver" Value="True">
+                <Setter TargetName="bd" Property="Background" Value="#0E8A54"/>
+              </Trigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate>
+        </Button.Template>
+      </Button>
     </Grid>
   </Border>
 </Window>

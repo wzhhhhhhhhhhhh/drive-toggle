@@ -268,6 +268,60 @@ Eq 'X4' (Get-MasterIconName $allOff.State) 'toggle-off.ico' '全部脱机时总�
 Eq 'X5' (Get-ToggleDirection -State $allOff.State) 'mount' '全部脱机时点总开关 = 全部接入'
 if ((Get-MasterDescription -State $allOff) -like '*全部脱机*') { Ok 'X6' '全部脱机描述正确' }
 else { No 'X6' '全部脱机描述不对' (Get-MasterDescription -State $allOff) }
+# ---------- 9) 唤醒哨兵（纯函数，不碰真实磁盘） ----------
+Write-Host ''
+Write-Host '9) 唤醒哨兵' -ForegroundColor White
+
+$tmp = Join-Path $env:TEMP ('dsh-wake-' + (Get-Random))
+New-Item -ItemType Directory -Path $tmp -Force | Out-Null
+
+# 9.1 快照读写往返
+$snap = @{}
+$snap['SN-A'] = [pscustomobject]@{ label = 'A 盘'; state = 'off'; startStop = 100; loadUnload = 200; powerOnHours = 300; at = '2026-01-01 00:00:00' }
+Write-DiskState -LogDir $tmp -Map $snap
+$back = Read-DiskState -LogDir $tmp
+if ($back.ContainsKey('SN-A') -and [int]$back['SN-A'].startStop -eq 100) { Ok 'W1' '快照读写往返正常' }
+else { No 'W1' '快照读写失败' ($back | ConvertTo-Json -Depth 4 -Compress) }
+
+# 9.2 首次运行（没有上次快照）→ 不告警
+$cur = [pscustomobject]@{ Ok = $true; PowerOnHours = 300; StartStop = 102; LoadUnload = 205 }
+Eq 'W2' (Compare-DiskSnapshot -Prev $null -Cur $cur) $null '首次运行不告警'
+
+# 9.3 上次不是脱机 → 不告警
+$prevOn = [pscustomobject]@{ state = 'on'; startStop = 100; loadUnload = 200; powerOnHours = 300; at = (Get-Date).AddHours(-2).ToString('yyyy-MM-dd HH:mm:ss') }
+Eq 'W3' (Compare-DiskSnapshot -Prev $prevOn -Cur $cur) $null '上次在线时不判定'
+
+# 9.4 间隔太短（< 5 分钟）→ 不告警
+$prevFresh = [pscustomobject]@{ state = 'off'; startStop = 100; loadUnload = 200; powerOnHours = 300; at = (Get-Date).AddMinutes(-2).ToString('yyyy-MM-dd HH:mm:ss') }
+Eq 'W4' (Compare-DiskSnapshot -Prev $prevFresh -Cur $cur) $null '间隔不足 5 分钟不判定'
+
+# 9.5 计数没变 → 不告警
+$prevOff = [pscustomobject]@{ state = 'off'; startStop = 102; loadUnload = 205; powerOnHours = 300; at = (Get-Date).AddHours(-2).ToString('yyyy-MM-dd HH:mm:ss') }
+Eq 'W5' (Compare-DiskSnapshot -Prev $prevOff -Cur $cur) $null '计数没变不告警'
+
+# 9.6 启停 +2 → 告警
+$prevLow = [pscustomobject]@{ state = 'off'; startStop = 100; loadUnload = 205; powerOnHours = 300; at = (Get-Date).AddHours(-2).ToString('yyyy-MM-dd HH:mm:ss') }
+$n = Compare-DiskSnapshot -Prev $prevLow -Cur $cur
+if ($n -and $n.StartStopDelta -eq 2 -and $n.PrevStartStop -eq 100 -and $n.CurStartStop -eq 102) { Ok 'W6' '启停增加时给出明细' }
+else { No 'W6' '启停增加没被判出来' ($n | ConvertTo-Json -Compress) }
+
+# 9.7 只有磁头加载增加 → 也告警
+$prevLoad = [pscustomobject]@{ state = 'off'; startStop = 102; loadUnload = 200; powerOnHours = 300; at = (Get-Date).AddHours(-2).ToString('yyyy-MM-dd HH:mm:ss') }
+$n2 = Compare-DiskSnapshot -Prev $prevLoad -Cur $cur
+if ($n2 -and $n2.LoadDelta -eq 5) { Ok 'W7' '只有磁头加载增加也会告警' }
+else { No 'W7' '磁头加载增加没被判出来' ($n2 | ConvertTo-Json -Compress) }
+
+# 9.8 读不到 SMART → 不告警（否则会误报）
+$curBad = [pscustomobject]@{ Ok = $false; PowerOnHours = 0; StartStop = 0; LoadUnload = 0 }
+Eq 'W8' (Compare-DiskSnapshot -Prev $prevLow -Cur $curBad) $null 'SMART 读不到时不告警'
+
+# 9.9 快照文件损坏 → 读成空表，不抛异常
+Set-Content -Path (Join-Path $tmp 'disk-state.json') -Value '{ 这不是 json' -Encoding UTF8
+$broken = Read-DiskState -LogDir $tmp
+if ($broken.Count -eq 0) { Ok 'W9' '快照损坏时安全降级' } else { No 'W9' '损坏快照没被忽略' '' }
+
+Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue
+
 # ---------- 汇总 ----------
 Write-Host ''
 Write-Host '=== 逻辑测试结果 ===' -ForegroundColor Cyan

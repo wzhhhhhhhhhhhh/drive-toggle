@@ -70,6 +70,183 @@ function Get-SmartInfo {
     }
 }
 
+# ---- 脱机期间的唤醒哨兵 ----
+# 思路：每次操作前后各记一次 SMART 累计值（启停次数 / 磁头加载次数 / 通电小时）。
+# 如果上一次快照是「脱机」，而这次读到计数变大了，说明脱机期间盘被唤醒过。
+#
+# 注意：这只能说明「盘停转后又转起来了」，不能断言「被读了 N 次」——
+# 盘自己按 APM 定时器停转、再被唤醒，计数同样会 +1。所以文案一律写「疑似被唤醒」，
+# 并且把三个数一起记下来，让人自己判断。
+
+function Get-SmartCounters {
+    # 取一块盘的 SMART 累计值。需要管理员权限；USB 桥接可能读不到。
+    param([int]$Number)
+    try {
+        $pd = Get-PhysicalDisk -ErrorAction Stop |
+              Where-Object { [string]$_.DeviceId -eq [string]$Number } | Select-Object -First 1
+        if (-not $pd) { return $null }
+        $c = $pd | Get-StorageReliabilityCounter -ErrorAction Stop
+        if (-not $c) { return $null }
+        return [pscustomobject]@{
+            Ok           = $true
+            PowerOnHours = [int]($c.PowerOnHours)
+            StartStop    = [int]($c.StartStopCycleCount)
+            LoadUnload   = [int]($c.LoadUnloadCycleCount)
+        }
+    } catch {
+        return $null
+    }
+}
+
+function Read-DiskState {
+    # 读快照文件，返回 hashtable（序列号 → 快照）。文件不存在或坏掉就返回空表。
+    param([string]$LogDir)
+    $map = @{}
+    if (-not $LogDir) { return $map }
+    $file = Join-Path $LogDir 'disk-state.json'
+    if (-not (Test-Path $file)) { return $map }
+    try {
+        $j = Get-Content -LiteralPath $file -Raw -Encoding UTF8 | ConvertFrom-Json
+        foreach ($p in $j.disks.PSObject.Properties) { $map[$p.Name] = $p.Value }
+    } catch { }
+    return $map
+}
+
+function Write-DiskState {
+    # 原子写：先写 .tmp 再替换，避免中途断电把快照写坏
+    param([string]$LogDir, $Map)
+    if (-not $LogDir) { return }
+    try {
+        if (-not (Test-Path $LogDir)) { New-Item -ItemType Directory -Path $LogDir -Force | Out-Null }
+        $obj = [ordered]@{ version = 1; disks = $Map }
+        $json = $obj | ConvertTo-Json -Depth 8
+        $file = Join-Path $LogDir 'disk-state.json'
+        $tmp  = $file + '.tmp'
+        [IO.File]::WriteAllText($tmp, $json, (New-Object Text.UTF8Encoding($false)))
+        Move-Item $tmp $file -Force
+    } catch { }
+}
+
+function Compare-DiskSnapshot {
+    # 纯函数：给上次快照和本次读数，判断脱机期间是否疑似被唤醒。
+    # 返回 $null 表示没有异常（或数据不足，不该报警）。
+    param(
+        $Prev,          # 上次快照（含 state / startStop / loadUnload / powerOnHours / at）
+        $Cur,           # 本次读数（Get-SmartCounters 的结果）
+        [datetime]$Now = (Get-Date),
+        [int]$MinMinutes = 5
+    )
+    if (-not $Prev -or -not $Cur) { return $null }
+    if (-not $Cur.Ok) { return $null }
+    if ([string]$Prev.state -ne 'off') { return $null }   # 上次不是脱机，谈不上"脱机期间"
+
+    $prevAt = $null
+    try { $prevAt = [datetime]::Parse([string]$Prev.at) } catch { }
+    if (-not $prevAt) { return $null }
+
+    $mins = ($Now - $prevAt).TotalMinutes
+    if ($mins -lt $MinMinutes) { return $null }           # 间隔太短，说明不了什么
+
+    $dStop  = [int]$Cur.StartStop    - [int]$Prev.startStop
+    $dLoad  = [int]$Cur.LoadUnload   - [int]$Prev.loadUnload
+    $dHours = [int]$Cur.PowerOnHours - [int]$Prev.powerOnHours
+
+    if ($dStop -le 0 -and $dLoad -le 0) { return $null }   # 没有变化
+
+    return [pscustomobject]@{
+        OfflineMinutes = [int]$mins
+        StartStopDelta = $dStop
+        LoadDelta      = $dLoad
+        HoursDelta     = $dHours
+        PrevStartStop  = [int]$Prev.startStop
+        CurStartStop   = [int]$Cur.StartStop
+    }
+}
+
+function Get-OfflineWakeups {
+    # 在操作**开始前**调用：检查上次快照（脱机）到现在的计数变化，报告疑似唤醒。
+    # 命中时写 steps.csv（阶段=唤醒/WARN）与 logs\wakeups.csv，并返回明细数组。
+    param($Targets, [string]$LogDir)
+
+    $found = @()
+    if (-not $LogDir) { return $found }
+    $map = Read-DiskState -LogDir $LogDir
+    if ($map.Count -eq 0) { return $found }
+
+    foreach ($t in @($Targets)) {
+        $disk = $null
+        try { $disk = Get-TargetDisk $t } catch { }
+        if (-not $disk) { continue }
+
+        $serial = ([string]$t.Serial).Trim()
+        if (-not $map.ContainsKey($serial)) { continue }
+        $prev = $map[$serial]
+
+        $cur = Get-SmartCounters -Number $disk.Number
+        if (-not $cur) {
+            Write-StepLog -Disk $t.Label -Stage '唤醒' -Status 'INFO' -Detail 'SMART 累计值读不到，跳过唤醒检查'
+            continue
+        }
+
+        $cmp = Compare-DiskSnapshot -Prev $prev -Cur $cur -Now (Get-Date)
+        if (-not $cmp) { continue }
+
+        $hours = [math]::Round($cmp.OfflineMinutes / 60.0, 1)
+        $detail = ('脱机 {0}h 内启停 +{1}（{2:N0}→{3:N0}）、磁头加载 +{4}、通电 +{5}h' -f `
+                   $hours, $cmp.StartStopDelta, $cmp.PrevStartStop, $cmp.CurStartStop,
+                   $cmp.LoadDelta, $cmp.HoursDelta)
+        Write-StepLog -Disk $t.Label -Stage '唤醒' -Status 'WARN' -Detail $detail
+
+        # 事件明细表
+        try {
+            $wakeFile = Join-Path $LogDir 'wakeups.csv'
+            $needHead = -not (Test-Path $wakeFile)
+            [pscustomobject]@{
+                时间           = (Get-Date -Format 'yyyy-MM-dd HH:mm:ss')
+                磁盘           = $t.Label
+                脱机时长分钟   = $cmp.OfflineMinutes
+                启停增量       = $cmp.StartStopDelta
+                磁头加载增量   = $cmp.LoadDelta
+                通电小时增量   = $cmp.HoursDelta
+            } | Export-Csv -Path $wakeFile -Append -NoTypeInformation -Encoding UTF8 -Force:$false
+        } catch { }
+
+        $found += [pscustomobject]@{
+            Label           = $t.Label
+            OfflineMinutes  = $cmp.OfflineMinutes
+            StartStopDelta  = $cmp.StartStopDelta
+            PrevStartStop   = $cmp.PrevStartStop
+            CurStartStop    = $cmp.CurStartStop
+            LoadDelta       = $cmp.LoadDelta
+        }
+    }
+    return $found
+}
+
+function Save-DiskState {
+    # 在操作**结束后**调用：把每块盘的当前状态与累计值写成新快照。
+    param($Targets, [string]$LogDir)
+    if (-not $LogDir) { return }
+    $map = Read-DiskState -LogDir $LogDir
+    foreach ($t in @($Targets)) {
+        $disk = $null
+        try { $disk = Get-TargetDisk $t } catch { }
+        if (-not $disk) { continue }
+        $cur = Get-SmartCounters -Number $disk.Number
+        if (-not $cur) { continue }
+        $serial = ([string]$t.Serial).Trim()
+        $map[$serial] = [pscustomobject]@{
+            label        = $t.Label
+            state        = $(if ($disk.IsOffline) { 'off' } else { 'on' })
+            startStop    = $cur.StartStop
+            loadUnload   = $cur.LoadUnload
+            powerOnHours = $cur.PowerOnHours
+            at           = (Get-Date -Format 'yyyy-MM-dd HH:mm:ss')
+        }
+    }
+    Write-DiskState -LogDir $LogDir -Map $map
+}
+
 function Write-ActionLog {
     # 追加一行操作记录；文件超过 1 MB 自动轮转，只保留一份备份。
     param([string]$LogDir, [string]$Action, [array]$Rows, [double]$Seconds)

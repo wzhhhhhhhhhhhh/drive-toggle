@@ -136,7 +136,7 @@ foreach ($t in $Targets) {
     $expect = if ($letter) { "disk-$letter-$st.ico" } else { $(if ($st -eq 'on') { 'toggle-on.ico' } else { 'toggle-off.ico' }) }
 
     $lnk = Find-Lnk ("$($script:MasterName) - " + $t.Label)
-    if (-not $lnk) { T-Skip 'S3' "「$($t.Label)」快捷方式不存在" '未安装'; continue }
+    if (-not $lnk) { T-Fail 'S3' "「$($t.Label)」快捷方式不存在" '配置里有这块盘却没有快捷方式 → 重跑初始化，或用 app\ 下的脚本重建'; continue }
     $icon = Get-LnkIcon $lnk
     if ($icon -eq $expect) { T-Ok 'S3' "「$($t.Label)」图标正确（$icon）" }
     else { T-Fail 'S3' "「$($t.Label)」图标与状态不符" "期望 $expect，实际 $icon（状态=$($info.State)，盘符=$letter）" }

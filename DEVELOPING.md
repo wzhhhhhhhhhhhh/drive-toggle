@@ -1,4 +1,4 @@
-# 开发与维护说明
+﻿# 开发与维护说明
 
 > 这份是给"要改这个工具的人（或 AI）"看的，普通用户看 [README.md](README.md) 就够了。
 > 测试用例与变更记录在 [TESTING.md](TESTING.md)。
@@ -117,6 +117,23 @@ PowerShell 5.1 会把无 BOM 的脚本按 GBK 读，中文全部变乱码并引�
 脚本和 exe 是否还存在。
 
 ---
+
+## 4.7 唤醒哨兵（脱机期间有没有被读）
+
+每次操作前后各记一次 SMART 累计值（启停 `StartStopCycleCount`、磁头加载
+`LoadUnloadCycleCount`、通电小时 `PowerOnHours`），存在 `logs\disk-state.json`。
+
+- 操作**前**：`Get-OfflineWakeups` 比对「上次快照（state=off）」与当前读数，
+  计数变大就写 `steps.csv`（阶段=`唤醒`/WARN）+ `logs\wakeups.csv`，并把结果交给界面
+- 操作**后**：`Save-DiskState` 写入新快照（含当前 state）
+- 界面：进度窗 footer 显示"疑似被唤醒"，并显示「知道了」按钮，**必须点击才关窗**
+  （最多等 10 分钟，避免无人值守卡死）
+
+判定细节在 `Compare-DiskSnapshot`（纯函数，可测）：上次不是 off、间隔不足 5 分钟、
+SMART 读不到、计数没变 —— 都不告警。
+
+**局限**：启停次数增加不等于"被读了 N 次"。盘按电源策略自己停转再被唤醒，
+计数同样会 +1。所以文案一律写"疑似"，并把三个数一起记下来让人自己判断。
 
 ## 5. 维护操作
 

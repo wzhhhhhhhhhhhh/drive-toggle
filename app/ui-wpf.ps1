@@ -121,7 +121,7 @@ function New-UiWorker {
     )
 
     $sync = [hashtable]::Synchronized(@{
-        Text = ''; Pct = $null; Done = $false; Error = $null; Results = @(); Seconds = 0.0
+        Text = ''; Pct = $null; Done = $false; Error = $null; Results = @(); Seconds = 0.0; Wake = @()
     })
 
     $rs = [runspacefactory]::CreateRunspace()
@@ -144,6 +144,13 @@ function New-UiWorker {
             . $global:__dshCore
             if ($global:__dshLogs) { [void](Initialize-StepLog -Action $global:__dshAction -LogDir $global:__dshLogs) }
 
+            # 操作前：检查上一段脱机期间盘有没有被唤醒
+            try {
+                if ($global:__dshLogs) {
+                    $global:__dshSync.Wake = @(Get-OfflineWakeups -Targets $global:__dshTargets -LogDir $global:__dshLogs)
+                }
+            } catch { }
+
             $cb = {
                 param($t, $p)
                 if ($t) { $global:__dshSync.Text = $t }
@@ -151,6 +158,11 @@ function New-UiWorker {
             }
             $r = Invoke-DiskOperation -Targets $global:__dshTargets -Direction $direction -Force:$force -DryRun:$dryRun -Progress $cb
             $global:__dshSync.Results = @($r)
+
+            # 操作后：把当前状态与 SMART 累计值写成新快照
+            try {
+                if ($global:__dshLogs) { Save-DiskState -Targets $global:__dshTargets -LogDir $global:__dshLogs }
+            } catch { }
         } catch {
             $global:__dshSync.Error = $_.Exception.Message
         } finally {
@@ -463,6 +475,7 @@ function Show-OperationDialog {
         fill      = $win.FindName('ProgressFill')
         track     = $win.FindName('TrackGrid')
         lblFoot   = $win.FindName('FootText')
+        ack       = $win.FindName('AckButton')
         st        = @{ barW = 0.0; shown = 0.0; target = 0.0; hasPct = $false }
     }
 
@@ -558,13 +571,41 @@ function Show-OperationDialog {
         if (@($results).Count -gt 0 -and (@($results)[0].PSObject.Properties.Name -contains '磁盘')) {
             $ctx.lblFoot.Text = (@($results | ForEach-Object { '{0}  {1}' -f $_.磁盘, $_.结果 }) -join '        ')
         }
+
+        # 脱机期间检测到唤醒：写进结果区，并要求点「知道了」才关窗
+        if ($sync -and $sync.Wake) { $wake = @($sync.Wake) }
+        if ($wake.Count -gt 0) {
+            $msg = @()
+            foreach ($w in $wake) {
+                $h = [math]::Round($w.OfflineMinutes / 60.0, 1)
+                $msg += ("{0}：脱机 {1}h 内疑似被唤醒" -f $w.Label, $h)
+                $msg += ("    启停 {0:N0} → {1:N0}（+{2}）· 磁头加载 +{3}" -f `
+                         $w.PrevStartStop, $w.CurStartStop, $w.StartStopDelta, $w.LoadDelta)
+            }
+            $msg += '明细见 logs\wakeups.csv'
+            $ctx.lblFoot.Text = ($msg -join "`n")
+            $ctx.ack.Visibility = 'Visible'
+            $win.Height = 276
+        }
     }
+
     Invoke-UiPump
 
-    $until = (Get-Date).AddSeconds($(if ($err) { $HoldFail } else { $HoldOk }))
-    while ((Get-Date) -lt $until -and $win.IsVisible) {
-        Invoke-UiPump
-        Start-Sleep -Milliseconds 30
+    if ($wake.Count -gt 0 -and -not $err) {
+        # 必须点「知道了」才关窗（最多等 10 分钟，防止无人值守时卡死）
+        $global:__dsAckDone = $false
+        $ctx.ack.Add_Click({ $global:__dsAckDone = $true }.GetNewClosure())
+        $until = (Get-Date).AddMinutes(10)
+        while (-not $global:__dsAckDone -and $win.IsVisible -and (Get-Date) -lt $until) {
+            Invoke-UiPump
+            Start-Sleep -Milliseconds 30
+        }
+    } else {
+        $until = (Get-Date).AddSeconds($(if ($err) { $HoldFail } else { $HoldOk }))
+        while ((Get-Date) -lt $until -and $win.IsVisible) {
+            Invoke-UiPump
+            Start-Sleep -Milliseconds 30
+        }
     }
 
     try { $win.Close() } catch { }
