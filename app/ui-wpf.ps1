@@ -439,6 +439,22 @@ function Wait-UiWorker {
 # 三种用法：
 #   1) -CorePath -Targets -Direction  → 后台跑磁盘操作
 #   2) -ScriptPath                    → 后台跑某个脚本（初始化用 install.ps1）
+function Set-WakeLogLink {
+    # 把「明细见 logs\wakeups.csv」做成可点击：打开文件夹并选中文件，没有文件就打开文件夹
+    param($Button, [string]$LogDir)
+    if (-not $Button) { return }
+    $dir = $LogDir
+    $Button.Add_Click({
+        try {
+            $csv = if ($dir) { Join-Path $dir 'wakeups.csv' } else { '' }
+            if ($csv -and (Test-Path $csv)) {
+                Start-Process explorer.exe -ArgumentList ('/select,"' + $csv + '"')
+            } elseif ($dir -and (Test-Path $dir)) {
+                Start-Process explorer.exe -ArgumentList $dir
+            }
+        } catch { }
+    }.GetNewClosure())
+}
 function Set-WakeListContent {
     # 把唤醒明细铺进一个 StackPanel：每块盘一组（标题 + 两行对齐的数据），组间一条细线。
     # 抽成独立函数是为了能用假数据打桩测试（盘多时是否出现滚动、量取高度是否合理）。
@@ -666,17 +682,8 @@ function Show-OperationDialog {
 
             [void](Set-WakeListContent -List $ctx.wakeList -Items $wake)
 
-            # 「明细见 logs\wakeups.csv」点一下就打开所在文件夹并选中该文件
-            if ($ctx.wakeLog) {
-                $logDirForClick = $LogDir
-                $ctx.wakeLog.Add_Click({
-                    try {
-                        $csv = Join-Path $logDirForClick 'wakeups.csv'
-                        if (Test-Path $csv) { Start-Process explorer.exe -ArgumentList ('/select,"' + $csv + '"') }
-                        elseif ($logDirForClick -and (Test-Path $logDirForClick)) { Start-Process explorer.exe -ArgumentList $logDirForClick }
-                    } catch { }
-                }.GetNewClosure())
-            }
+            # 「明细见 logs\wakeups.csv」点一下打开所在文件夹并选中该文件
+            [void](Set-WakeLogLink -Button $ctx.wakeLog -LogDir $LogDir)
 
             # 窗口高度跟着内容长，但不超过屏幕；盘多时由 ScrollViewer 接管
             $win.SizeToContent = 'Height'
