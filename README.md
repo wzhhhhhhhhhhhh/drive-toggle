@@ -109,6 +109,7 @@ git clone https://github.com/wzhhhhhhhhhhhh/drive-toggle.git
 需要点「知道了」才关闭；同一事件也会记进 `wakeups.csv`。
 
 注意这只是"疑似"——盘自己按电源策略停转、再被唤醒，计数同样会增加。
+判定时已经扣掉了"读 SMART 本身唤醒盘"的那一次，所以正常开关不会每次都弹提示。
 
 ---
 

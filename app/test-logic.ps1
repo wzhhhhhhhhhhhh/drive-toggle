@@ -291,9 +291,11 @@ Eq 'W2' (Compare-DiskSnapshot -Prev $null -Cur $cur) $null '首次运行不告�
 $prevOn = [pscustomobject]@{ state = 'on'; startStop = 100; loadUnload = 200; powerOnHours = 300; at = (Get-Date).AddHours(-2).ToString('yyyy-MM-dd HH:mm:ss') }
 Eq 'W3' (Compare-DiskSnapshot -Prev $prevOn -Cur $cur) $null '上次在线时不判定'
 
-# 9.4 间隔太短（< 5 分钟）→ 不告警
+# 9.4 不设最短间隔：哪怕只过 2 分钟，只要增量达到阈值也判定
 $prevFresh = [pscustomobject]@{ state = 'off'; startStop = 100; loadUnload = 200; powerOnHours = 300; at = (Get-Date).AddMinutes(-2).ToString('yyyy-MM-dd HH:mm:ss') }
-Eq 'W4' (Compare-DiskSnapshot -Prev $prevFresh -Cur $cur) $null '间隔不足 5 分钟不判定'
+$n0 = Compare-DiskSnapshot -Prev $prevFresh -Cur $cur
+if ($n0 -and $n0.StartStopDelta -eq 2) { Ok 'W4' '间隔很短也照样判定（无最短间隔限制）' }
+else { No 'W4' '短间隔没有被判定' ($n0 | ConvertTo-Json -Compress) }
 
 # 9.5 计数没变 → 不告警
 $prevOff = [pscustomobject]@{ state = 'off'; startStop = 102; loadUnload = 205; powerOnHours = 300; at = (Get-Date).AddHours(-2).ToString('yyyy-MM-dd HH:mm:ss') }
@@ -319,6 +321,11 @@ Eq 'W8' (Compare-DiskSnapshot -Prev $prevLow -Cur $curBad) $null 'SMART 读不�
 Set-Content -Path (Join-Path $tmp 'disk-state.json') -Value '{ 这不是 json' -Encoding UTF8
 $broken = Read-DiskState -LogDir $tmp
 if ($broken.Count -eq 0) { Ok 'W9' '快照损坏时安全降级' } else { No 'W9' '损坏快照没被忽略' '' }
+
+# 9.10 只 +1 次（我们自己读 SMART 造成的）→ 不报警
+$prevOne = [pscustomobject]@{ state = 'off'; startStop = 100; loadUnload = 200; powerOnHours = 300; at = (Get-Date).AddHours(-2).ToString('yyyy-MM-dd HH:mm:ss') }
+$curOne = [pscustomobject]@{ Ok = $true; StartStop = 101; LoadUnload = 201; PowerOnHours = 300 }
+Eq 'W10' (Compare-DiskSnapshot -Prev $prevOne -Cur $curOne) $null '只 +1（自身唤醒）不报警'
 
 Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue
 

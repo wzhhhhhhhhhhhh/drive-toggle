@@ -130,11 +130,14 @@ function Write-DiskState {
 function Compare-DiskSnapshot {
     # 纯函数：给上次快照和本次读数，判断脱机期间是否疑似被唤醒。
     # 返回 $null 表示没有异常（或数据不足，不该报警）。
+    # 注意：不设最短间隔——只要上次快照是脱机，期间的计数增加就参与判断。
+    # 但读 SMART 这个动作本身会把停转的盘唤醒（+1 次），那一次是我们自己造成的，
+    # 所以默认要求增量 >= 2 才报警（见 $MinDelta）。
     param(
         $Prev,          # 上次快照（含 state / startStop / loadUnload / powerOnHours / at）
         $Cur,           # 本次读数（Get-SmartCounters 的结果）
         [datetime]$Now = (Get-Date),
-        [int]$MinMinutes = 5
+        [int]$MinDelta = 2   # 我们读 SMART 本身会造成 1 次唤醒，所以要 >=2 才报警
     )
     if (-not $Prev -or -not $Cur) { return $null }
     if (-not $Cur.Ok) { return $null }
@@ -145,13 +148,16 @@ function Compare-DiskSnapshot {
     if (-not $prevAt) { return $null }
 
     $mins = ($Now - $prevAt).TotalMinutes
-    if ($mins -lt $MinMinutes) { return $null }           # 间隔太短，说明不了什么
 
     $dStop  = [int]$Cur.StartStop    - [int]$Prev.startStop
     $dLoad  = [int]$Cur.LoadUnload   - [int]$Prev.loadUnload
     $dHours = [int]$Cur.PowerOnHours - [int]$Prev.powerOnHours
 
     if ($dStop -le 0 -and $dLoad -le 0) { return $null }   # 没有变化
+
+    # 读 SMART 本身会唤醒停转的盘（+1 次），那一次是我们自己造成的，
+    # 只有超过这个自行造成的增量才说明"脱机期间确实被别的动作碰过"。
+    if ($dStop -lt $MinDelta -and $dLoad -lt $MinDelta) { return $null }
 
     return [pscustomobject]@{
         OfflineMinutes = [int]$mins
@@ -163,6 +169,14 @@ function Compare-DiskSnapshot {
     }
 }
 
+function Format-OfflineSpan {
+    # 把分钟数说成人话：< 60 分钟用分钟，否则用小时
+    param([int]$Minutes)
+    if ($Minutes -lt 60) { return "$Minutes 分钟" }
+    $h = [math]::Round($Minutes / 60.0, 1)
+    if ($h -eq [math]::Floor($h)) { return ('{0:N0} 小时' -f $h) }
+    return "$h 小时"
+}
 function Get-OfflineWakeups {
     # 在操作**开始前**调用：检查上次快照（脱机）到现在的计数变化，报告疑似唤醒。
     # 命中时写 steps.csv（阶段=唤醒/WARN）与 logs\wakeups.csv，并返回明细数组。
@@ -191,9 +205,9 @@ function Get-OfflineWakeups {
         $cmp = Compare-DiskSnapshot -Prev $prev -Cur $cur -Now (Get-Date)
         if (-not $cmp) { continue }
 
-        $hours = [math]::Round($cmp.OfflineMinutes / 60.0, 1)
-        $detail = ('脱机 {0}h 内启停 +{1}（{2:N0}→{3:N0}）、磁头加载 +{4}、通电 +{5}h' -f `
-                   $hours, $cmp.StartStopDelta, $cmp.PrevStartStop, $cmp.CurStartStop,
+        $span = Format-OfflineSpan -Minutes $cmp.OfflineMinutes
+        $detail = ('脱机 {0}，期间启停 +{1}（{2:N0}→{3:N0}）、磁头加载 +{4}、通电 +{5}h' -f `
+                   $span, $cmp.StartStopDelta, $cmp.PrevStartStop, $cmp.CurStartStop,
                    $cmp.LoadDelta, $cmp.HoursDelta)
         Write-StepLog -Disk $t.Label -Stage '唤醒' -Status 'WARN' -Detail $detail
 
@@ -214,6 +228,7 @@ function Get-OfflineWakeups {
         $found += [pscustomobject]@{
             Label           = $t.Label
             OfflineMinutes  = $cmp.OfflineMinutes
+            OfflineText     = $span
             StartStopDelta  = $cmp.StartStopDelta
             PrevStartStop   = $cmp.PrevStartStop
             CurStartStop    = $cmp.CurStartStop

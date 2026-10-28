@@ -577,8 +577,8 @@ function Show-OperationDialog {
         if ($wake.Count -gt 0) {
             $msg = @()
             foreach ($w in $wake) {
-                $h = [math]::Round($w.OfflineMinutes / 60.0, 1)
-                $msg += ("{0}：脱机 {1}h 内疑似被唤醒" -f $w.Label, $h)
+                $span = if ($w.OfflineText) { $w.OfflineText } else { ('{0} 分钟' -f $w.OfflineMinutes) }
+                $msg += ("{0}：脱机 {1}，期间疑似被唤醒" -f $w.Label, $span)
                 $msg += ("    启停 {0:N0} → {1:N0}（+{2}）· 磁头加载 +{3}" -f `
                          $w.PrevStartStop, $w.CurStartStop, $w.StartStopDelta, $w.LoadDelta)
             }
